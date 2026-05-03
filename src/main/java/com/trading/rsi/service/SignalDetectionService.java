@@ -36,6 +36,7 @@ public class SignalDetectionService {
     private final AnomalyNotificationService anomalyNotificationService;
     private final CrossAssetCorrelationService crossAssetCorrelationService;
     private final VolatilityRegimeService volatilityRegimeService;
+    private final FilterEventCounterService filterEventCounterService;
     
     @Value("${rsi.period:14}")
     private int rsiPeriod;
@@ -182,6 +183,7 @@ public class SignalDetectionService {
             if (anomalyNotificationService.recentCriticalAnomalyFor(instrument.getSymbol(), 60)) {
                 log.warn("ANOMALY-SUPPRESSED: {} {} — CRITICAL anomaly within last 60 min (retained for review)",
                         signalType, instrument.getSymbol());
+                filterEventCounterService.record("ANOMALY_RECENT", instrument.getSymbol());
                 return;
             }
 
@@ -193,6 +195,7 @@ public class SignalDetectionService {
             if (isBuySignal && crossAssetCorrelationService.isRiskOff()) {
                 log.info("RISK-OFF SUPPRESSED: {} {} — risk-off regime active (oil spiking, indices/crypto falling)",
                         signalType, instrument.getSymbol());
+                filterEventCounterService.record("RISK_OFF", instrument.getSymbol());
                 return;
             }
 
@@ -204,6 +207,7 @@ public class SignalDetectionService {
             if (isSellSignal && crossAssetCorrelationService.isRiskOn()) {
                 log.info("RISK-ON SUPPRESSED: {} {} — risk-on regime active (indices/crypto rising)",
                         signalType, instrument.getSymbol());
+                filterEventCounterService.record("RISK_ON", instrument.getSymbol());
                 return;
             }
 
@@ -212,6 +216,7 @@ public class SignalDetectionService {
                 log.info("HIGH VOLATILITY SUPPRESSED: {} {} — ATR expansion across {} instruments",
                         signalType, instrument.getSymbol(),
                         volatilityRegimeService.getExpansionRatios().size());
+                filterEventCounterService.record("HIGH_VOLATILITY", instrument.getSymbol());
                 return;
             }
 

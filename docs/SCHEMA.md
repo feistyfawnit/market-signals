@@ -88,6 +88,31 @@ Runtime operational state — persists across restarts. Managed via `/api/settin
 
 ---
 
+### `filter_event_counts`
+
+Persistent counter for signal suppression events — survives log rotation.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `BIGSERIAL` | PRIMARY KEY | Auto-generated |
+| `filter_name` | `VARCHAR(30)` | NOT NULL, UNIQUE (with symbol, day) | e.g. `ADX_RANGING`, `MACD_HISTOGRAM`, `RISK_OFF` |
+| `symbol` | `VARCHAR(30)` | NOT NULL, UNIQUE (with filter_name, day) | Instrument symbol |
+| `day` | `DATE` | NOT NULL, UNIQUE (with filter_name, symbol) | UTC day |
+| `count` | `BIGINT` | NOT NULL | Running count of suppressions |
+
+**Indexes:**
+- `PRIMARY KEY (id)`
+- `UNIQUE (filter_name, symbol, day)` — upsert target
+- `INDEX (day)` — time-range queries
+
+**Growth Rate:** 9 filter names × N instruments × 1 row/day each. ~30 rows/day at current scale. No archival needed (constant rows/day × unlimited retention is negligible).
+
+**UPSERT:** `INSERT ... ON CONFLICT DO UPDATE SET count = count + 1` — one row per (filter, symbol, day).
+
+**Weekly backup:** Dumped to `signal_archive/filter_event_counts_YYYYMMDD.csv` via GitHub Actions (Sundays 04:00 UTC).
+
+---
+
 ## Entity Relationship
 
 ```

@@ -69,6 +69,13 @@ jobs:
           wc -l ./signal_archive/position_outcomes_live_*.csv
           echo "✅ position_outcomes backup saved"
 
+      - name: Pull filter_event_counts CSV from EC2
+        run: |
+          echo "📥 Exporting filter_event_counts from EC2 Postgres..."
+          ssh -o StrictHostKeyChecking=accept-new ubuntu@${{ secrets.EC2_HOST }} "docker exec market-signals-postgres psql -U postgres -d market_signals -c \"\\copy (SELECT filter_name, symbol, day, count FROM filter_event_counts ORDER BY day, filter_name, symbol) TO STDOUT WITH CSV HEADER\"" > ./signal_archive/filter_event_counts_$(date -u +%Y%m%d).csv
+          wc -l ./signal_archive/filter_event_counts_*.csv
+          echo "✅ filter_event_counts backup saved"
+
       - name: Commit and push if changes exist
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"

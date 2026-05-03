@@ -37,6 +37,7 @@ public class PositionOutcomeService {
     private final PriceHistoryService priceHistoryService;
     private final TrendDetectionService trendDetectionService;
     private final AtrCalculator atrCalculator;
+    private final FilterEventCounterService filterEventCounterService;
 
     private static final Duration MAX_HOLDING = Duration.ofHours(24);
     private static final String ATR_TIMEFRAME = "15m";
@@ -92,12 +93,14 @@ public class PositionOutcomeService {
         if (positionOutcomeRepository.existsBySymbolAndExitTimeIsNull(signal.getSymbol())) {
             log.debug("Skipping position for {} {} — open position already exists",
                     signal.getSymbol(), signal.getSignalType());
+            filterEventCounterService.record("DUPE_OPEN_POSITION", signal.getSymbol());
             return;
         }
         Instant cooldownSince = Instant.now().minus(Duration.ofHours(signalCooldownHours));
         if (positionOutcomeRepository.existsBySymbolSince(signal.getSymbol(), cooldownSince)) {
             log.debug("Skipping position for {} {} — signal within last {}h cooldown",
                     signal.getSymbol(), signal.getSignalType(), signalCooldownHours);
+            filterEventCounterService.record("POSITION_COOLDOWN", signal.getSymbol());
             return;
         }
 

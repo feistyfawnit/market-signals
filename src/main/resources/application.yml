@@ -92,6 +92,13 @@ rsi:
     adx-filter-enabled: ${TREND_ADX_FILTER_ENABLED:true}
     adx-period: ${TREND_ADX_PERIOD:14}
     adx-threshold: ${TREND_ADX_THRESHOLD:20.0}
+    # MACD histogram confirmation for TREND_BUY_DIP (Appel 1979).
+    # Blocks entry when histogram is not bullish AND not rising on the trend timeframe.
+    # Set enabled=false to disable; fast/slow/signal periods mirror the classic 12/26/9.
+    macd-filter-enabled: ${TREND_MACD_FILTER_ENABLED:true}
+    macd-fast-period: ${TREND_MACD_FAST_PERIOD:12}
+    macd-slow-period: ${TREND_MACD_SLOW_PERIOD:26}
+    macd-signal-period: ${TREND_MACD_SIGNAL_PERIOD:9}
     # Crypto volume confirmation for TREND_BUY_DIP — high volume validates pullbacks per LuxAlgo / r/algotrading.
     # IG CFD volume is unreliable; filter only applies to CRYPTO instruments.
     crypto-volume-filter-enabled: ${TREND_CRYPTO_VOLUME_FILTER_ENABLED:true}

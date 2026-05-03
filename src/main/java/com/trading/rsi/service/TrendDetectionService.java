@@ -54,6 +54,8 @@ public class TrendDetectionService {
     private final EmaCalculator emaCalculator;
     private final PriceHistoryService priceHistoryService;
     private final AdxCalculator adxCalculator;
+    private final MacdCalculator macdCalculator;
+    private final FilterEventCounterService filterEventCounterService;
     private final CandleHistoryRepository candleHistoryRepository;
 
     @Value("${rsi.trend.ema-period:20}")
@@ -88,6 +90,18 @@ public class TrendDetectionService {
 
     @Value("${rsi.trend.adx-threshold:20.0}")
     private double adxThreshold;
+
+    @Value("${rsi.trend.macd-filter-enabled:true}")
+    private boolean macdFilterEnabled;
+
+    @Value("${rsi.trend.macd-fast-period:12}")
+    private int macdFastPeriod;
+
+    @Value("${rsi.trend.macd-slow-period:26}")
+    private int macdSlowPeriod;
+
+    @Value("${rsi.trend.macd-signal-period:9}")
+    private int macdSignalPeriod;
 
     @Value("${rsi.trend.crypto-volume-filter-enabled:true}")
     private boolean cryptoVolumeFilterEnabled;
@@ -305,6 +319,23 @@ public class TrendDetectionService {
                 log.info("Trend entry suppressed for {} — ADX({}) on {} is {} < {} (ranging market)",
                         instrument.getSymbol(), adxPeriod, emaTrendTimeframe,
                         adx.get().toPlainString(), adxThreshold);
+                filterEventCounterService.record("ADX_RANGING", instrument.getSymbol());
+                return;
+            }
+        }
+
+        // MACD histogram confirmation for TREND_BUY_DIP (Appel 1979).
+        // Only applies to the uptrend path; Optional.empty() is warmup-friendly and does not block.
+        if (macdFilterEnabled && trend == TrendState.STRONG_UPTREND) {
+            Optional<MacdCalculator.MacdHistogram> hist = macdCalculator.compute(
+                    instrument.getSymbol(), emaTrendTimeframe,
+                    macdFastPeriod, macdSlowPeriod, macdSignalPeriod);
+            if (hist.isPresent() && !hist.get().isBullish() && !hist.get().isRising()) {
+                log.info("Trend entry suppressed for {} — MACD histogram not bullish/rising on {} (current={}, previous={})",
+                        instrument.getSymbol(), emaTrendTimeframe,
+                        hist.get().current().toPlainString(),
+                        hist.get().previous().toPlainString());
+                filterEventCounterService.record("MACD_HISTOGRAM", instrument.getSymbol());
                 return;
             }
         }
@@ -468,6 +499,7 @@ public class TrendDetectionService {
         log.info("Trend entry suppressed for {} — volume {} < {}× mean ({})",
                 instrument.getSymbol(), triggerCandle.getVolume(), cryptoVolumeMultiplier,
                 BigDecimal.valueOf(meanVolume).setScale(2, RoundingMode.HALF_UP));
+        filterEventCounterService.record("CRYPTO_VOLUME", instrument.getSymbol());
         return false;
     }
 
