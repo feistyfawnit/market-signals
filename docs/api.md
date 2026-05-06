@@ -145,7 +145,7 @@ curl -X DELETE http://localhost:8080/api/settings/active-position
 
 ## Test / Demo — `/api/test`
 
-For development and demo purposes. See `QUICKSTART.md` for usage.
+For development and demo purposes. See `README.md` for usage.
 
 | Method | Endpoint | Description |
 |---|---|---|

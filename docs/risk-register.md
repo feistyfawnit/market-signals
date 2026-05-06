@@ -8,7 +8,6 @@
 > ⚠️ **IG API DATA ALLOWANCE — CRITICAL**
 > IG permits **10,000 data points/week**. Exceeding this returns HTTP 403 (`exceeded-account-historical-data-allowance`). **This occurred April 8, 2026.**
 > - Current safe budget: ~5,300 pts/week (IG polling every 15 min, 5 IG instruments with candle-period skip)
-REPLACE
 > - Each candle fetch = 1 data point; warmup fetches 28 at once
 > - **Do NOT**: add IG instruments, shorten IG polling interval, or trigger bulk warmup without recalculating budget
 > - **Do NOT**: make ad-hoc IG price/candle API calls without counting the cost
@@ -22,7 +21,8 @@ REPLACE
 | IG API rate limit ban | Medium | High | Exponential backoff; respect limits; demo-first |
 | False signals in choppy markets | High | Medium | ✅ ADX filter deployed Apr 24 — ADX(14)>20 required for trend entries |
 | RSI calculation bugs | Low | High | Unit test against TA-Lib; backtest on historical data |
-| AWS EC2 downtime | Low | Medium | Health check monitoring; auto-restart on crash |
+| AWS EC2 downtime / OOM kill | **Occurred** | **High** | JVM caps now set (see May 2026 incident); 1GB swap added; `restart: unless-stopped` auto-recovers app but does not recover sshd if OOM kills OS processes |
+| Feature growth on t3.micro | Medium | Medium | Each new scheduled service (MACD, ADX, correlation, archival, oil report) adds heap + thread pressure. t3.micro has 1GB RAM. New features must be assessed for memory/CPU impact before merging. |
 | Market closure edge case | Medium | Low | Skip polling outside market hours per instrument |
 | IG 10k/week data allowance exceeded | **Occurred** | **Critical** | Split polling (IG 15 min), candle-period skip, stale DB cleanup; see April 7 incident |
 
@@ -59,5 +59,4 @@ REPLACE
 
 ---
 
-*Ivan T & Brian H — Private Use*
-REPLACE
+*Private Use*

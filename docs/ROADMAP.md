@@ -90,7 +90,7 @@
 
 - **Data sources**: Binance (FREE, crypto) and IG (FREE with account, indices/FX/commodities/crypto). Finnhub and Twelve Data rejected — free tiers insufficient for indices coverage and rate limits.
 - **Hosting**: AWS EC2 t3.micro (eu-west-1, Free Tier 12 months). Postgres self-hosted in the same Docker Compose. No RDS.
-- **AI model swap**: `ClaudeEnrichmentService` is the only file to change. Gemini Flash / DeepSeek / GPT-4o-mini all cheaper than Haiku; swap when ready.
+- **AI model swap**: `ClaudeEnrichmentService` is the only file to change. DeepSeek is preferred (balance available); swap endpoint when ready.
 
 ---
 
