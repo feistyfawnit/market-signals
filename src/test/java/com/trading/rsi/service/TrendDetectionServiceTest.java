@@ -49,6 +49,9 @@ class TrendDetectionServiceTest {
     @Mock
     private CandleHistoryRepository candleHistoryRepository;
 
+    @Mock
+    private FilterEventCounterService filterEventCounterService;
+
     @InjectMocks
     private TrendDetectionService trendDetectionService;
 

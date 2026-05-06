@@ -2,9 +2,7 @@ package com.trading.rsi.controller;
 
 import com.trading.rsi.domain.Instrument;
 import com.trading.rsi.domain.SignalLog;
-import com.trading.rsi.event.AnomalyEvent;
 import com.trading.rsi.event.SignalEvent;
-import com.trading.rsi.model.AnomalyAlert;
 import com.trading.rsi.model.RsiSignal;
 import com.trading.rsi.repository.InstrumentRepository;
 import com.trading.rsi.service.IGAuthService;
@@ -14,7 +12,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,45 +46,6 @@ public class TestController {
 
         eventPublisher.publishEvent(new SignalEvent(this, signal));
         return ResponseEntity.ok(Map.of("status", "Test notification dispatched — check Telegram"));
-    }
-
-    @PostMapping("/anomaly")
-    public ResponseEntity<Map<String, String>> triggerTestAnomaly(
-            @RequestParam(defaultValue = "volume") String type) {
-        AnomalyAlert alert;
-        if ("polymarket".equalsIgnoreCase(type)) {
-            alert = Objects.requireNonNull(AnomalyAlert.builder()
-                    .type(AnomalyAlert.AnomalyType.POLYMARKET_ODDS_SHIFT)
-                    .severity(AnomalyAlert.Severity.HIGH)
-                    .market("US tariff announcement [TEST]")
-                    .description("Prediction market: 12.5pp odds shift in 30min — US tariff announcement [TEST]")
-                    .detectedAt(Instant.now())
-                    .details(Map.of(
-                            "slug", "will-the-us-impose-new-tariffs-in-the-next-30-days",
-                            "yesProbabilityPct", 67.5,
-                            "shiftPp", 12.5,
-                            "windowMinutes", 30
-                    ))
-                    .build());
-        } else {
-            alert = Objects.requireNonNull(AnomalyAlert.builder()
-                    .type(AnomalyAlert.AnomalyType.VOLUME_SPIKE)
-                    .severity(AnomalyAlert.Severity.HIGH)
-                    .market("Solana (15m) [TEST]")
-                    .description("Volume spike 4.8\u03c3 above baseline — Solana 15m [TEST]")
-                    .detectedAt(Instant.now())
-                    .details(Map.of(
-                            "symbol", "SOLUSDT",
-                            "timeframe", "15m",
-                            "currentVolume", 485000.0,
-                            "baselineMean", 82000.0,
-                            "stdDev", 84000.0,
-                            "zScore", 4.8
-                    ))
-                    .build());
-        }
-        eventPublisher.publishEvent(new AnomalyEvent(this, alert));
-        return ResponseEntity.ok(Map.of("status", "Anomaly test alert dispatched (type=" + type + ") — check Telegram"));
     }
 
     @PostMapping("/lower-thresholds")

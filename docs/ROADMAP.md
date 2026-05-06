@@ -12,7 +12,7 @@
 | 2 — IG API integration | ✅ Live | Session auto-refresh; DAX / FTSE / S&P / Gold / Oil / Silver seeded. |
 | 3 — Claude AI enrichment | ✅ Built, disabled | Set `CLAUDE_API_KEY` + `CLAUDE_ENABLED=true`. ~$5–10/mo. |
 | 4 — Semi-automated trading | ✅ Scaffolded, hard-disabled | Requires 3+ months paper-trade validation. Kill switch: `POST /api/trading/kill-switch/activate`. |
-| 5 — Anomaly / geopolitical | ⏳ Partial | **Volume spike**, **Polymarket monitor**, **Cross-instrument correlation**, and **Volatility regime filter** all live. Only **Uncertainty Mode** not started. |
+| 5 — Anomaly / geopolitical | ⏳ Partial | **Cross-instrument correlation** and **Volatility regime filter** live. Volume spike, Polymarket, momentum surge, and oil opportunity features removed Apr 2026 — zero actionable signals after weeks of monitoring (see `project-log.md`). Only **Uncertainty Mode** not started. |
 
 ---
 
@@ -34,13 +34,6 @@
 | 2026-04-14…16 | **Trend Detection v2 + v2.1** | EMA20(1h) primary trend filter + momentum fallback + consecutive-signal fallback. TREND_BUY_DIP / TREND_SELL_RALLY signal types. Stops at half width, trend limits at 3× stop. Suppresses counter-trend signals immediately after warmup. |
 | 2026-04-XX | **Deployed to AWS EC2** | Live on `108.128.230.238` (eu-west-1). See `docs/remote-deployment.md`. |
 | 2026-04-XX | **ntfy.sh → Telegram migration** | Private bot `@LucidLynx1_bot`; chat-id whitelist in `TELEGRAM_CHAT_IDS`. ntfy code fully removed. |
-| 2026-04-XX | **Phase 5 anomaly scaffolding** | `VolumeAnomalyDetector` (4σ), `AnomalyNotificationService`, `PolymarketMonitorService` (5-min polling, ≥8pp odds shift). |
-| 2026-04-XX | **Phase 4 auto-trading scaffold** | `IGTradingService` behind kill switch + manual-approval flag + daily loss limit + max-concurrent. Hard-disabled in code. |
-| 2026-04-XX | **Phase 3 Claude enrichment built** | `ClaudeEnrichmentService` wired into `NotificationService`; disabled by default. |
-| 2026-04-XX | **Phase 2 IG integration** | Live spread-bet auth; 6-hour session refresh; watchlist upsert on every restart via `DataInitializer`. |
-| 2026-04-XX | **Cross-asset correlation filter** | `CrossAssetCorrelationService` live — detects risk-on/off regimes (oil spiking + indices falling = risk-off) and suppresses counter-trend signals. Updates every poll cycle. |
-| 2026-04-XX | **Volatility regime filter** | `VolatilityRegimeService` live — detects ATR expansion >1.5× 20-period mean across 2+ instruments and suppresses new entries during high volatility. |
-| 2026-04-XX | **Polymarket discovery + monitoring** | `PolymarketDiscoveryService` (market discovery with tag/liquidity filters) and `PolymarketMonitorService` (≥8pp odds shift alerts) both live. |
 | 2026-04-XX | **Phase 1 core engine** | Spring Boot + Postgres + Docker; multi-TF RSI; watchlist CRUD REST; cooldown / quiet-hours; repo renamed `rsi-alert-service → market-signals`. |
 
 ---
@@ -78,8 +71,7 @@
 
 ## Immediate Next Actions
 
-1. **Validate new retrospective reports** — Check `GET /api/positions/oil-review` and `GET /api/positions/momentum-review` to confirm both render correctly with current candle history.
-2. **Monitor Phase 5 filters** — Watch logs for `RISK-OFF SUPPRESSED`, `RISK-ON SUPPRESSED`, and `HIGH VOLATILITY SUPPRESSED` to verify correlation + volatility filters are working.
+1. **Monitor Phase 5 filters** — Watch logs for `RISK-OFF SUPPRESSED`, `RISK-ON SUPPRESSED`, and `HIGH VOLATILITY SUPPRESSED` to verify correlation + volatility filters are working.
 3. **Paper trade only** — do not enable Phase 4 auto-exec.
 4. **Run `make candles-backup-remote` weekly** — local CSV backup in `reports/candles/` (retain until you've validated the DB backup story).
 5. **Add `CLAUDE_API_KEY`** when you want richer Telegram context.
@@ -96,7 +88,7 @@
 
 ## 🔍 What to Build Next (Current Reality Assessment)
 
-*As of May 2026, with Correlation, Volatility, Polymarket, Momentum Surge, and Oil Opportunity reports all live:*
+*As of May 2026, with Correlation and Volatility regime filters live, and anomaly features (volume spikes, Polymarket, momentum surge, oil review) removed as dead weight:*
 
 ### Worth Building Now
 
@@ -112,12 +104,11 @@
 
 - **Cross-instrument correlation detector** — *Already live* as `CrossAssetCorrelationService`. Risk-on/off regime detection works via price momentum, not RSI alignment counts.
 - **Volatility-spike entry filter** — *Already live* as `VolatilityRegimeService`. Suppresses signals when ATR expands >1.5× across 2+ instruments.
-- **Price momentum surge detector** — *Already built* as `PriceMomentumSurgeDetector`. Retrospective analysis available at `GET /api/positions/momentum-review`.
 - **Telegram bot commands** — Nice-to-have, but the system already has signal recording, P&L reports, and HTTP endpoints for everything. Lower priority than signal-quality improvements.
 
 ### Strategic Observation
 
-The system now has **more filtering/reporting infrastructure than signal-generation refinement**. The retrospective tools (oil-review, momentum-review) will reveal whether the current RSI-based approach is catching the right moves. If momentum-review shows consistent "MISSED" on surges that later became TREND_BUY_DIP winners, consider tightening RSI thresholds or adding earlier entry logic — not more filters.
+The system now has more filtering infrastructure than signal-generation refinement. Focus on RSI-bucket outcome analysis and ATR-stops A/B tracking to refine the existing signal pipeline before adding new features.
 
 ---
 

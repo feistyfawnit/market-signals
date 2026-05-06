@@ -6,6 +6,26 @@
 
 ---
 
+## 2026-04-25 — Phase 5 Anomaly Features Removed
+
+Five features removed as dead weight — none produced actionable signals:
+
+1. **Polymarket monitor** (`PolymarketMonitorService`, `PolymarketDiscoveryService`) — odds shifts never preceded price moves. Deleted service classes, config keys, scheduled poll, test endpoint. `ANOMALY_DETECTION_ENABLED` env var removed.
+2. **Volume anomaly detector** (`VolumeAnomalyDetector`) — σ-based volume spikes never correlated with signal quality. Deleted service class, `onNewCandle` call in `MarketDataPollingService`, volume context in `NotificationService`, test endpoint.
+3. **Cross-correlation burst** (`AnomalyNotificationService.maybeEmitCorrelationBurst`) — 60s window almost never clustered. With volume + polymarket anomalies gone, this had no inputs. Removed entire `AnomalyNotificationService` + `AnomalyProperties` + `AnomalyAlert`/`AnomalyEvent`/`AnomalyLog`/`AnomalyLogRepository`.
+4. **Momentum surge report** (`PriceMomentumSurgeDetector`) — retrospective report endpoint that never informed live trading. Deleted service class + `GET /api/positions/momentum-review` endpoint + config keys.
+5. **Oil opportunity review** (`OilOpportunityReportService`) — retrospective report endpoint. Deleted service class + `GET /api/positions/oil-review` endpoint + config keys.
+
+**Kept**: `CrossAssetCorrelationService` (regime detection for risk-on/risk-off signal suppression) and `VolatilityRegimeService` (ATR-based volatility suppression) — both are core signal quality filters, not anomaly features.
+
+**DB cleanup**: The `anomaly_log` table still exists in PostgreSQL. JPA won't auto-drop it (no mapped entity). To remove manually:
+
+```sql
+DROP TABLE IF EXISTS anomaly_log;
+```
+
+---
+
 ## How the Detection Works
 
 ### Candles

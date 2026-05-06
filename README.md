@@ -1,6 +1,6 @@
 # LucidLynx Market Signals
 
-A production-grade Spring Boot service that monitors financial instruments for multi-indicator alignment signals across multiple timeframes and sends instant push notifications. Combines RSI, Stochastic, volume anomalies, and geopolitical event monitoring (via Polymarket). Monitors crypto (via Binance), indices and commodities (via IG API) in real time.
+A production-grade Spring Boot service that monitors financial instruments for multi-indicator alignment signals across multiple timeframes and sends instant push notifications. Combines RSI, Stochastic, and trend detection (EMA/ADX/MACD). Monitors crypto (via Binance), indices and commodities (via IG API) in real time.
 
 **Repository:** `https://github.com/feistyfawnit/market-signals` (Private)
 
@@ -12,8 +12,7 @@ A production-grade Spring Boot service that monitors financial instruments for m
 - ✅ Private push notifications via Telegram bot (multi-recipient, no app install needed)
 - ✅ Partial signal monitoring with lagging-TF follow-ups
 - ✅ No-trade mode + per-symbol muting (persistent across restarts via DB)
-- ✅ Active position tracking — gates anomaly alerts until a trade is open
-- ✅ Volume anomaly detection (σ-based) + Polymarket geopolitical odds monitor
+- ✅ Active position tracking — gates alerts until a trade is open
 - ✅ Claude AI signal enrichment (optional)
 - ✅ Signal CSV archival with outcome backfill (1h/4h/24h price tracking)
 - ✅ Auto P&L tracking — positions opened on signal, TP/SL checked hourly, daily markdown report

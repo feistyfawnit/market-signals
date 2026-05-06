@@ -49,20 +49,6 @@ class TestControllerTest {
     }
 
     @Test
-    void anomaly_volumeType_dispatchesVolumeAlert() throws Exception {
-        mockMvc.perform(post("/api/test/anomaly").param("type", "volume"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").exists());
-    }
-
-    @Test
-    void anomaly_polymarketType_dispatchesPolymarketAlert() throws Exception {
-        mockMvc.perform(post("/api/test/anomaly").param("type", "polymarket"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.status").exists());
-    }
-
-    @Test
     void lowerThresholds_returnsUpdatedCount() throws Exception {
         mockMvc.perform(post("/api/test/lower-thresholds")
                 .param("oversold", "25")

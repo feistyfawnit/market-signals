@@ -1,9 +1,7 @@
 package com.trading.rsi.controller;
 
-import com.trading.rsi.service.OilOpportunityReportService;
 import com.trading.rsi.service.PositionOutcomeService;
 import com.trading.rsi.service.PositionReportService;
-import com.trading.rsi.service.PriceMomentumSurgeDetector;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,10 +16,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class PositionController {
 
-    private final OilOpportunityReportService oilOpportunityReportService;
     private final PositionOutcomeService positionOutcomeService;
     private final PositionReportService positionReportService;
-    private final PriceMomentumSurgeDetector priceMomentumSurgeDetector;
 
     @GetMapping("/pnl-summary")
     public Map<String, Object> getPnlSummary() {
@@ -36,16 +32,6 @@ public class PositionController {
     @GetMapping(value = "/pnl-report/csv", produces = "text/csv")
     public String getPnlCsv() {
         return positionReportService.generateCsv();
-    }
-
-    @GetMapping(value = "/oil-review", produces = MediaType.TEXT_PLAIN_VALUE)
-    public String getOilReview() {
-        return oilOpportunityReportService.generateReport();
-    }
-
-    @GetMapping(value = "/momentum-review", produces = MediaType.TEXT_PLAIN_VALUE)
-    public String getMomentumReview() {
-        return priceMomentumSurgeDetector.generateReport();
     }
 
     @PostMapping("/recalculate")

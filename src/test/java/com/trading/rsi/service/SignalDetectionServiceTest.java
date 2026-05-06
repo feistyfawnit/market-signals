@@ -56,7 +56,13 @@ class SignalDetectionServiceTest {
     private TrendDetectionService trendDetectionService;
 
     @Mock
-    private AnomalyNotificationService anomalyNotificationService;
+    private CrossAssetCorrelationService crossAssetCorrelationService;
+
+    @Mock
+    private VolatilityRegimeService volatilityRegimeService;
+
+    @Mock
+    private FilterEventCounterService filterEventCounterService;
 
     @InjectMocks
     private SignalDetectionService signalDetectionService;
@@ -67,7 +73,6 @@ class SignalDetectionServiceTest {
         ReflectionTestUtils.setField(signalDetectionService, "watchProximityThreshold", 40);
         ReflectionTestUtils.setField(signalDetectionService, "partialRequireFastTfAligned", true);
         ReflectionTestUtils.setField(signalDetectionService, "watchSignalsEnabled", false);
-        lenient().when(anomalyNotificationService.recentCriticalAnomalyFor(anyString(), anyInt())).thenReturn(false);
     }
 
     @Test

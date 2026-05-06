@@ -52,7 +52,6 @@ The app runs on an **AWS t3.micro (1 GB RAM, 1 vCPU)**. Efficiency is a first-cl
 - **Docker hard limits**: app container `memory: 450M`, Postgres `memory: 100M`. OOM kills are real.
 - **DB queries must be bounded**: `TrendDetectionService.isVolumeConfirmed()` now uses `findBySymbolAndTimeframeOrderByCandleTimeDesc(..., Pageable.ofSize(lookback))` — only the last N candles are fetched. ✅ Fixed Apr 2026.
 - **Tables that grow forever need archival**: `signal_logs` (90-day), `position_outcomes` (90-day), and `candle_history` (60-day) are all archived weekly/monthly by `HistoryArchivalService` to dated CSVs in `signal_archive/`, then pruned from DB. ✅ Fixed Apr 2026.
-- **Phase 5 anomaly services** (`VolumeAnomalyDetector`, `PolymarketMonitorService`) are live but lightweight. Do not add more scheduled polling loops without checking CPU impact on the single vCPU.
 - **Telegram message batching**: `PartialSignalMonitorService` already tightened (60 min window, 30 min interval). Do not increase notification frequency.
 - **No local + AWS simultaneous runs**: doubles IG data point consumption and JVM/DB contention. `make up` is guarded with `LOCAL_RUN=yes` check.
 
@@ -63,9 +62,23 @@ The app runs on an **AWS t3.micro (1 GB RAM, 1 vCPU)**. Efficiency is a first-cl
   - `README.md`
   - `docs/troubleshooting.md`
 - **Historical/reference docs**:
-  - `docs/project-log.md` — incident and decision history
+  - `docs/project-log.md` — incident and decision history **← check here before proposing previously-removed features**
   - `docs/archived/requirements.md` — original project specification; useful context, but not the current source of truth
   - `docs/roadmap.md` — backlog and phase tracking
+
+## Previously Removed Features (do not re-add without new evidence)
+
+Features removed as dead weight — zero actionable signals after weeks of monitoring. See `docs/project-log.md#2026-04-25` for full details:
+
+| Feature | Reason |
+|---------|--------|
+| Volume anomaly detection (σ-based) | Spikes never correlated with signal quality |
+| Polymarket odds monitoring | Odds shifts never preceded price moves |
+| Cross-correlation burst alerts | 60s window almost never clustered |
+| Price momentum surge reports | Retrospective-only, never informed live trading |
+| Oil opportunity review | Retrospective-only, never informed live trading |
+
+If proposing a new feature that sounds similar: check `docs/project-log.md` first. Any re-introduction requires concrete evidence (backtest data, new data source, or materially different methodology) that it would behave differently this time.
 
 ## Deployment
 

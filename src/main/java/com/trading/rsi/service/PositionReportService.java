@@ -311,7 +311,6 @@ public class PositionReportService {
         }
 
         md.append("\n---\n*Run `make pnl-report` to refresh. Auto-updates daily at 06:00 UTC.*\n\n");
-        md.append("*Oil rebound review:* `GET /api/positions/oil-review`\n\n");
         md.append("> **Note:** Positions closed prior to 2026-04-21 are not shown in this report. ");
         md.append("Earlier closed trades (mostly TREND_BUY_DIP wins on SOL) contributed approximately **+€800** (R-weighted). ");
         md.append("These are archived in `position_outcomes_YYYY-MM.csv`.\n");

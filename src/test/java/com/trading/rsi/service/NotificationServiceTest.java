@@ -34,9 +34,6 @@ class NotificationServiceTest {
     @Mock
     private TrendDetectionService trendDetectionService;
 
-    @Mock
-    private VolumeAnomalyDetector volumeAnomalyDetector;
-
     @InjectMocks
     private NotificationService notificationService;
 

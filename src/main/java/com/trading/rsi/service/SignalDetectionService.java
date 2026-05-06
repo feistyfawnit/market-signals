@@ -33,7 +33,6 @@ public class SignalDetectionService {
     private final SignalCooldownService cooldownService;
     private final PartialSignalMonitorService partialSignalMonitorService;
     private final TrendDetectionService trendDetectionService;
-    private final AnomalyNotificationService anomalyNotificationService;
     private final CrossAssetCorrelationService crossAssetCorrelationService;
     private final VolatilityRegimeService volatilityRegimeService;
     private final FilterEventCounterService filterEventCounterService;
@@ -180,13 +179,6 @@ public class SignalDetectionService {
         }
         
         if (signalType != null && cooldownService.shouldAlert(instrument.getSymbol(), signalType)) {
-            if (anomalyNotificationService.recentCriticalAnomalyFor(instrument.getSymbol(), 60)) {
-                log.warn("ANOMALY-SUPPRESSED: {} {} — CRITICAL anomaly within last 60 min (retained for review)",
-                        signalType, instrument.getSymbol());
-                filterEventCounterService.record("ANOMALY_RECENT", instrument.getSymbol());
-                return;
-            }
-
             // Suppress buy signals during risk-off regime (oil spikes + indices/crypto falling)
             boolean isBuySignal = signalType == SignalLog.SignalType.OVERSOLD
                     || signalType == SignalLog.SignalType.PARTIAL_OVERSOLD

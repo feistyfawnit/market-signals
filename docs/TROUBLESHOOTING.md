@@ -101,26 +101,6 @@ make ship               # normal path — deploy to AWS and watch logs
 
 ---
 
-## SSL / PKIX Certificate Error (Polymarket)
-
-**Symptom:**
-```
-SSLHandshakeException: PKIX path building failed: unable to find valid certification path to requested target
-```
-Target: `gamma-api.polymarket.com`
-
-**Cause:** Alpine-based Docker images sometimes ship with an incomplete or stale CA certificate bundle. The JVM cannot verify the TLS certificate chain.
-
-**Fix:** `Dockerfile` runtime stage now runs `apk add --no-cache ca-certificates && update-ca-certificates`. Rebuild to apply:
-```bash
-make up        # local
-make deploy    # AWS EC2
-```
-
-**Not caused by:** Polymarket API being down, networking issues, or app config.
-
----
-
 ## `make` Targets — Local vs AWS
 
 `make` runs on your **Mac only**. The EC2 Ubuntu instance does not have `make` installed.

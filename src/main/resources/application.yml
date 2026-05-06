@@ -167,74 +167,10 @@ notifications:
       password: ${SMTP_PASSWORD:}
     to: ${ALERT_EMAIL:}
 
-anomaly:
-  enabled: ${ANOMALY_DETECTION_ENABLED:true}
-  volume-spike:
-    enabled: true
-    std-dev-threshold: 3.0
-    lookback-periods: 30
-    min-periods-before-alert: 20
-    cooldown-minutes: 120
-    min-baseline-volume: 200
-    # Apr 24 2026: gate Telegram anomaly alerts. Database logging (anomaly_log) is
-    # unaffected — only the Telegram push is filtered. Values:
-    #   ALL        — alert for every symbol (previous behaviour)
-    #   RELEVANT   — alert only if (a) active position on symbol, OR (b) a signal
-    #                fired on that symbol within `notify-recent-signal-hours`
-    #   OPEN_ONLY  — alert only when there's an active position on the symbol
-    notify-scope: ${ANOMALY_NOTIFY_SCOPE:RELEVANT}
-    notify-recent-signal-hours: ${ANOMALY_RECENT_SIGNAL_HOURS:4}
-  # Cross-correlation burst collapse: when N+ distinct symbols fire anomalies within
-  # a short window (macro / news event), suppress the individual alerts after the
-  # threshold is hit and emit a single CROSS_CORRELATION alert.
-  correlation:
-    enabled: ${ANOMALY_CORRELATION_ENABLED:true}
-    min-instruments: ${ANOMALY_CORRELATION_MIN_INSTRUMENTS:3}
-    window-seconds: ${ANOMALY_CORRELATION_WINDOW_SECONDS:60}
-  polymarket:
-    enabled: true
-    poll-interval-seconds: 300
-    odds-shift-threshold-percent: 8
-    window-minutes: 30
-    # Discovery mode: fetches active markets by tag (recommended — avoids expired markets)
-    # Set empty [] to use manual markets list below
-    discovery-tags:
-      - politics
-      - geopolitics
-    max-discovery-markets: 10
-    excluded-slugs: []  # Markets to ignore from discovery
-    # Manual mode: only used if discovery-tags is empty
-    # Warning: Prediction markets expire — slugs go stale. Prefer discovery mode.
-    markets: []
-      # Example (legacy mode):
-      # - slug: will-trump-announce-tariffs-on-april-11
-      #   name: "Trump tariff announcement"
-
 archive:
   enabled: ${ARCHIVE_ENABLED:true}
   dir: ${ARCHIVE_DIR:./signal_archive}
   retention-days: ${ARCHIVE_RETENTION_DAYS:90}
-
-pnl:
-  oil-review:
-    path: ${OIL_REVIEW_PATH:./reports/oil-opportunity-review.md}
-    lookback-days: ${OIL_REVIEW_LOOKBACK_DAYS:7}
-    rsi-threshold: ${OIL_REVIEW_RSI_THRESHOLD:40}
-    min-4h-rebound-pct: ${OIL_REVIEW_MIN_REBOUND_PCT:1.0}
-    min-separation-minutes: ${OIL_REVIEW_MIN_SEPARATION_MINUTES:120}
-
-momentum:
-  surge:
-    # Price-momentum surge detector: identifies rapid intraday moves (>0.5%/15min or >1%/1h)
-    # before RSI aligns, requiring 2+ indices/commodities aligned to filter noise.
-    # Uses existing candle_history only — no extra IG API calls.
-    lookback-days: ${MOMENTUM_LOOKBACK_DAYS:14}
-    report-path: ${MOMENTUM_REPORT_PATH:./reports/momentum-surge-review.md}
-    min-separation-minutes: ${MOMENTUM_MIN_SEPARATION_MINUTES:60}
-    # Surge thresholds (internal, not exposed to env):
-    #   15m: >0.5% move
-    #   1h:  >1.0% move
-    # Aligned window: 2+ instruments within 30 minutes
 
 springdoc:
   api-docs:

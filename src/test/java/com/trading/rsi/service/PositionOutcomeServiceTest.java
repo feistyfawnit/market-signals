@@ -45,6 +45,9 @@ class PositionOutcomeServiceTest {
     @Mock
     private TrendDetectionService trendDetectionService;
 
+    @Mock
+    private FilterEventCounterService filterEventCounterService;
+
     @InjectMocks
     private PositionOutcomeService service;
 

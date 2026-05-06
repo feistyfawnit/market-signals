@@ -9,7 +9,6 @@ import com.trading.rsi.service.MarketDataService;
 import com.trading.rsi.service.PriceHistoryService;
 import com.trading.rsi.service.SignalDetectionService;
 import com.trading.rsi.service.VolatilityRegimeService;
-import com.trading.rsi.service.VolumeAnomalyDetector;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,7 +36,6 @@ public class MarketDataPollingService {
     private final MarketDataService marketDataService;
     private final PriceHistoryService priceHistoryService;
     private final SignalDetectionService signalDetectionService;
-    private final VolumeAnomalyDetector volumeAnomalyDetector;
     private final CrossAssetCorrelationService crossAssetCorrelationService;
     private final VolatilityRegimeService volatilityRegimeService;
     
@@ -218,9 +216,6 @@ public class MarketDataPollingService {
                 String key = priceHistoryService.buildKey(instrument.getSymbol(), timeframe);
                 priceHistoryService.updatePriceHistory(key, latestCandle);
                 lastCandleTimestamps.put(timestampKey, candleTimestamp);
-                volumeAnomalyDetector.onNewCandle(
-                        instrument.getSymbol(), instrument.getName(),
-                        timeframe, latestCandle);
                 log.info("Updated {} {} with new candle at {}: {}",
                         instrument.getSymbol(), timeframe,
                         candleTimestamp, latestCandle.getClose());
