@@ -45,6 +45,8 @@ public interface CandleHistoryRepository extends JpaRepository<CandleHistory, Lo
 
     long countBySymbolAndTimeframe(String symbol, String timeframe);
 
+    List<CandleHistory> findBySymbolOrderByCandleTimeDesc(String symbol, Pageable pageable);
+
     @Modifying
     @Transactional
     @Query(value = """

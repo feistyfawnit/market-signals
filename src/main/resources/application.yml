@@ -247,7 +247,7 @@ watchlist:
       # for forward P&L tracking, but no Telegram alert. Matches the pattern used to evaluate
       # a signal-type on a new instrument without live-alert noise. Flip back to true once
       # ≥20 trades of data show positive expectancy.
-      trend-buy-dip-notify: false
+      trend-buy-dip-notify: true
     # Gold — verified epic CS.D.USCGC.TODAY.IP (Spot Gold, XAU/USD proxy)
     - symbol: CS.D.USCGC.TODAY.IP
       name: Gold

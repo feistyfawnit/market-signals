@@ -82,7 +82,13 @@ If proposing a new feature that sounds similar: check `docs/project-log.md` firs
 
 ## Deployment
 
-Primary path: **AWS Free Tier** — Dublin region (`eu-west-1`), 12 months free, ~€15/month after.
+Primary path: **git push to `main`** → GitHub Actions (`.github/workflows/deploy.yml`) auto-deploys to EC2 via SSH.
+- **Do NOT use `make ship` for normal deploys** — GHA is the canonical deploy path.
+- `make ship` / `make deploy` are available for manual/emergency deploys only.
+- GHA workflow: `git fetch + reset --hard + docker-compose down + up -d --build`
+- No build or test step runs before deploy — a broken push goes straight to production.
+
+AWS Free Tier — Dublin region (`eu-west-1`), 12 months free, ~€15/month after.
 See `docs/remote-deployment.md` for full guide (Terraform, Oracle, Alibaba, CI/CD all included).
 
 ## Useful Commands
@@ -93,10 +99,13 @@ make up
 make logs
 make pnl-report
 
-# AWS EC2 (run from Mac — SSH in automatically)
+# Deploy (primary path — triggers GHA auto-deploy)
+git push  # push to main → GHA deploys automatically
+
+# AWS EC2 manual/emergency deploy (run from Mac — SSH in automatically)
 make deploy        # pull + rebuild + start on EC2
 make remote-logs   # tail logs from EC2
-make ship          # deploy then tail (one command)
+make ship          # deploy then tail (one command) — manual only
 
 # Health checks (swap localhost for EC2 IP when targeting AWS)
 curl http://localhost:8080/actuator/health

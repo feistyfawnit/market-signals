@@ -10,6 +10,9 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import com.trading.rsi.domain.CandleHistory;
+import com.trading.rsi.repository.CandleHistoryRepository;
+import org.springframework.data.domain.Pageable;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -52,6 +55,7 @@ public class AlertCsvService {
             DateTimeFormatter.ofPattern("yyyy-MM").withZone(ZoneOffset.UTC);
 
     private final PriceHistoryService priceHistoryService;
+    private final CandleHistoryRepository candleHistoryRepository;
 
     @Value("${archive.enabled:true}")
     private boolean enabled;
@@ -61,8 +65,10 @@ public class AlertCsvService {
 
     private final Map<String, ReentrantLock> fileLocks = new ConcurrentHashMap<>();
 
-    public AlertCsvService(PriceHistoryService priceHistoryService) {
+    public AlertCsvService(PriceHistoryService priceHistoryService,
+                            CandleHistoryRepository candleHistoryRepository) {
         this.priceHistoryService = priceHistoryService;
+        this.candleHistoryRepository = candleHistoryRepository;
     }
 
     /**
@@ -189,7 +195,7 @@ public class AlertCsvService {
                 boolean changed = false;
 
                 if (elapsedHours >= 1 && fields[COL_PRICE_1H].isEmpty()) {
-                    BigDecimal price = priceHistoryService.getLatestPrice(symbol);
+                    BigDecimal price = resolvePrice(symbol);
                     if (price != null) {
                         fields[COL_PRICE_1H] = price.toPlainString();
                         changed = true;
@@ -197,7 +203,7 @@ public class AlertCsvService {
                     }
                 }
                 if (elapsedHours >= 4 && fields[COL_PRICE_4H].isEmpty()) {
-                    BigDecimal price = priceHistoryService.getLatestPrice(symbol);
+                    BigDecimal price = resolvePrice(symbol);
                     if (price != null) {
                         fields[COL_PRICE_4H] = price.toPlainString();
                         changed = true;
@@ -205,7 +211,7 @@ public class AlertCsvService {
                     }
                 }
                 if (elapsedHours >= 24 && fields[COL_PRICE_24H].isEmpty()) {
-                    BigDecimal price = priceHistoryService.getLatestPrice(symbol);
+                    BigDecimal price = resolvePrice(symbol);
                     if (price != null) {
                         fields[COL_PRICE_24H] = price.toPlainString();
                         changed = true;
@@ -264,6 +270,14 @@ public class AlertCsvService {
                 String.valueOf(signalUtc.getHour()),
                 signalUtc.getDayOfWeek().name()
         );
+    }
+
+    private BigDecimal resolvePrice(String symbol) {
+        BigDecimal price = priceHistoryService.getLatestPrice(symbol);
+        if (price != null) return price;
+        List<CandleHistory> latest = candleHistoryRepository
+                .findBySymbolOrderByCandleTimeDesc(symbol, Pageable.ofSize(1));
+        return latest.isEmpty() ? null : latest.get(0).getClose();
     }
 
     private ReentrantLock getLock(Path file) {
