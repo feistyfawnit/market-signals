@@ -195,7 +195,7 @@ public class AlertCsvService {
                 boolean changed = false;
 
                 if (elapsedHours >= 1 && fields[COL_PRICE_1H].isEmpty()) {
-                    BigDecimal price = resolvePrice(symbol);
+                    BigDecimal price = resolvePrice(symbol, signalTime.plus(Duration.ofHours(1)));
                     if (price != null) {
                         fields[COL_PRICE_1H] = price.toPlainString();
                         changed = true;
@@ -203,7 +203,7 @@ public class AlertCsvService {
                     }
                 }
                 if (elapsedHours >= 4 && fields[COL_PRICE_4H].isEmpty()) {
-                    BigDecimal price = resolvePrice(symbol);
+                    BigDecimal price = resolvePrice(symbol, signalTime.plus(Duration.ofHours(4)));
                     if (price != null) {
                         fields[COL_PRICE_4H] = price.toPlainString();
                         changed = true;
@@ -211,7 +211,7 @@ public class AlertCsvService {
                     }
                 }
                 if (elapsedHours >= 24 && fields[COL_PRICE_24H].isEmpty()) {
-                    BigDecimal price = resolvePrice(symbol);
+                    BigDecimal price = resolvePrice(symbol, signalTime.plus(Duration.ofHours(24)));
                     if (price != null) {
                         fields[COL_PRICE_24H] = price.toPlainString();
                         changed = true;
@@ -272,7 +272,10 @@ public class AlertCsvService {
         );
     }
 
-    private BigDecimal resolvePrice(String symbol) {
+    private BigDecimal resolvePrice(String symbol, Instant targetInstant) {
+        List<CandleHistory> candles = candleHistoryRepository
+                .findBySymbolAndCandleTimeLessThanEqualOrderByCandleTimeDesc(symbol, targetInstant, Pageable.ofSize(1));
+        if (!candles.isEmpty()) return candles.get(0).getClose();
         BigDecimal price = priceHistoryService.getLatestPrice(symbol);
         if (price != null) return price;
         List<CandleHistory> latest = candleHistoryRepository

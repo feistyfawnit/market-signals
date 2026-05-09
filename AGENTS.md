@@ -19,7 +19,7 @@ If you are reviewing or changing this repo, read in this order:
 
 - **Binance instruments**: `SOLUSDT` (full signals), `BTCUSDT`/`ETHUSDT` (enabled, no suppression), `BCHUSDT` (disabled)
   - Timeframes: `15m,1h,4h`
-- **IG indices**: DAX (full signals, 0/7 TREND_BUY_DIP in current data — under review); S&P 500 (TREND_BUY_DIP silent `notify:false` — recording P&L without Telegram noise); FTSE 100 (TREND_BUY_DIP disabled); Nasdaq 100 (disabled)
+- **IG indices**: DAX (TREND_BUY_DIP disabled — 0/9 wins, €901 cumulative losses); S&P 500 (TREND_BUY_DIP silent `notify:false` — recording P&L without Telegram noise); FTSE 100 (TREND_BUY_DIP disabled); Nasdaq 100 (disabled)
   - Timeframes: `15m,30m,1h`
 - **IG commodities**: Gold (TREND_BUY_DIP disabled); Silver, Oil (disabled)
   - Timeframes: `15m,1h,4h`
