@@ -37,6 +37,7 @@ public class PositionReportService {
     private final PositionOutcomeRepository positionOutcomeRepository;
     private final PriceHistoryService priceHistoryService;
     private final InstrumentRepository instrumentRepository;
+    private final SignalGapService signalGapService;
 
     @Value("${pnl.report.path:./reports/pnl-report.md}")
     private String reportPath;
@@ -296,6 +297,13 @@ public class PositionReportService {
               .append("** | **").append(totExpired[0])
               .append("** | **").append(totNet[0] >= 0 ? "+" : "").append(String.format("€%.0f", totNet[0]))
               .append("** |\n");
+        }
+
+        // ── Trend Signal Suppressions ──
+        try {
+            md.append(signalGapService.buildTrendSuppressionSection());
+        } catch (Exception e) {
+            log.warn("Failed to build trend suppression section: {}", e.getMessage());
         }
 
         // ── All Closed Positions (moved to end, collapsed if large) ──

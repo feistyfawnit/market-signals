@@ -2,7 +2,80 @@
 
 *Local only — do not commit to market-signals repo*
 *Renamed from signal-strategy-notes.md — April 2026*
-*Last updated: April 2026*
+*Last updated: May 2026*
+
+---
+
+## 2026-05-10 — Trend signal gap analysis
+
+### New endpoint: GET /api/positions/signal-gaps
+
+Queries `filter_event_counts` (last 30 days) and returns per-symbol:
+- `trendSignalsFired` — TREND_BUY_DIP entries in `signal_logs` that passed all detection filters
+- `totalSuppressed` — sum of all `filter_event_counts` entries for that symbol
+- `suppressionRate` — `totalSuppressed / (totalSuppressed + trendSignalsFired)`
+- `filters` — per-filter counts, sorted by frequency
+
+Also returns `raceConditionCandidates`: 24h auto-closes where `POSITION_COOLDOWN` fired on the same calendar day. Uses a single JOIN query across `position_outcomes` and `filter_event_counts`. Day-level granularity only (no timestamps in filter_event_counts) — matches same/next day.
+
+**Note on filter scope**: `ADX_RANGING`, `MACD_HISTOGRAM`, `CRYPTO_VOLUME` are TREND_BUY_DIP-specific (fired by `TrendDetectionService`). `DUPE_OPEN_POSITION`, `POSITION_COOLDOWN`, `RISK_OFF`, `RISK_ON`, `HIGH_VOLATILITY` cover all signal types.
+
+### P&L report: Trend Signal Suppressions section
+
+`PositionReportService` now includes a **Trend Signal Suppressions (Last 7 Days)** table in the daily `pnl-report.md`. Shows top 3 suppression reasons per active TREND_BUY_DIP symbol (enabled=true, trendBuyDipEnabled≠false).
+
+### New repo methods added
+- `FilterEventCountRepository.sumBySymbolAndFilterSince` — aggregate by symbol+filter for date range
+- `FilterEventCountRepository.sumBySymbolSince` — aggregate for a single symbol, ordered by count desc
+- `FilterEventCountRepository.findRaceConditionCandidatesSince` — JOIN with position_outcomes to detect race conditions in one query
+- `SignalLogRepository.countFiredBySymbolSince` — JPQL count of a given SignalType grouped by symbol since a date
+
+---
+
+## 2026-05-10 — position_outcomes race-condition fix; DeepSeek enrichment
+
+### Task 1 — Missing SOL TREND_BUY_DIP entry (May 7 ~14:52 UTC)
+
+**Root cause**: race condition between the 10-min exit-check job and a new signal firing at the exact 24h mark.
+
+| Step | What happened |
+|---|---|
+| May 6 ~14:52 UTC | SOL TREND_BUY_DIP position opened |
+| May 7 14:50 UTC | Exit-check job runs: `entryTime + 24h (14:52) isBefore now (14:50)` = false → NOT auto-closed |
+| May 7 14:52 UTC | New TREND_BUY_DIP fires → `existsBySymbolAndExitTimeIsNull` = true → signal **silently dropped** (log.debug only) |
+| May 7 15:00 UTC | Exit-check job runs again → auto-close fires |
+
+**Fix** (`PositionOutcomeService.handleSignalEvent`): when the DUPE check fires, fetch the open position and check if `entryTime + 24h < now`. If overdue, force-close it and proceed with the new entry. If not overdue, skip as before.
+
+Both suppression log lines upgraded `debug → info` so DUPE_OPEN_POSITION and POSITION_COOLDOWN suppressions are visible in `make remote-logs`.
+
+**New repo method**: `PositionOutcomeRepository.findFirstBySymbolAndExitTimeIsNull(String symbol)`.
+
+### Task 2 — DeepSeek enrichment for TREND_BUY_DIP
+
+New `DeepSeekEnrichmentService` (disabled by default, `DEEPSEEK_ENABLED=false`).
+
+| Config | Value |
+|---|---|
+| API | `https://api.deepseek.com/v1/chat/completions` (OpenAI-compatible) |
+| Model | `deepseek-chat` (configurable via `DEEPSEEK_MODEL`) |
+| Trigger | `TREND_BUY_DIP` only |
+| `max_tokens` | 60 (enforces one-sentence response) |
+| Timeout | 2 seconds hard (`WebClient.timeout`) |
+| Failure mode | Silent skip — Telegram notification sends regardless |
+
+Appended as final line (🤖) to the Telegram message after Claude context (📰). Both optional and independently toggleable. Added `DEEPSEEK_ENABLED=false` / `DEEPSEEK_API_KEY=` to `.env.example`. Config keys under `deepseek.*` in `application.yml`.
+
+---
+
+## 2026-05-10 — DAX TREND_BUY_DIP disabled; CSV backfill price accuracy fix
+
+| Decision | Detail |
+|---|---|
+| DAX `trend-buy-dip-enabled: false` | 0/9 wins, €901 cumulative losses, 0% TP. Same outcome as FTSE/Gold/Silver. No edge. |
+| `AlertCsvService.resolvePrice()` bug | Was writing current live price into `price_1h/4h/24h_later` — wrong for rows where the window had already passed. Fixed: now queries `candle_history` for candle closest to `signalTime + offset`. |
+| `CandleHistoryRepository` new query | `findBySymbolAndCandleTimeLessThanEqualOrderByCandleTimeDesc` — derived, no `@Query` needed. |
+| `POST /api/admin/backfill-csv` | New endpoint triggers `backfillOutcomePrices()` immediately. Run post-deploy to fix existing blank rows: `curl -X POST .../api/admin/backfill-csv` |
 
 ---
 

@@ -46,6 +46,9 @@ public class SignalDetectionService {
     @Value("${rsi.partial-require-fast-tf-aligned:true}")
     private boolean partialRequireFastTfAligned;
 
+    @Value("${rsi.partial-signals-enabled:true}")
+    private boolean partialSignalsEnabled;
+
     @Value("${rsi.watch-signals.enabled:false}")
     private boolean watchSignalsEnabled;
 
@@ -153,7 +156,7 @@ public class SignalDetectionService {
         if (oversoldCount == totalTimeframes) {
             signalType = SignalLog.SignalType.OVERSOLD;
             alignedCount = oversoldCount;
-        } else if (oversoldCount >= totalTimeframes - 1 && oversoldCount > 0) {
+        } else if (partialSignalsEnabled && oversoldCount >= totalTimeframes - 1 && oversoldCount > 0) {
             if (!partialRequireFastTfAligned || isFastestTfAligned(rsiValues, instrument.getTimeframes(), true, instrument.getOversoldThreshold())) {
                 signalType = SignalLog.SignalType.PARTIAL_OVERSOLD;
                 alignedCount = oversoldCount;
@@ -163,7 +166,7 @@ public class SignalDetectionService {
         } else if (overboughtCount == totalTimeframes) {
             signalType = SignalLog.SignalType.OVERBOUGHT;
             alignedCount = overboughtCount;
-        } else if (overboughtCount >= totalTimeframes - 1 && overboughtCount > 0) {
+        } else if (partialSignalsEnabled && overboughtCount >= totalTimeframes - 1 && overboughtCount > 0) {
             if (!partialRequireFastTfAligned || isFastestTfAligned(rsiValues, instrument.getTimeframes(), false, instrument.getOverboughtThreshold())) {
                 signalType = SignalLog.SignalType.PARTIAL_OVERBOUGHT;
                 alignedCount = overboughtCount;

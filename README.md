@@ -131,12 +131,14 @@ See [docs/api.md](docs/api.md) for adding instruments via the REST API.
 
 | Priority | Signal | Condition | Telegram |
 |---|---|---|---|
-| 1 | 🟢 OVERSOLD / 🔴 OVERBOUGHT | All TFs aligned | Alert |
-| 2 | 📈 TREND_BUY_DIP / 📉 TREND_SELL_RALLY | RSI pullback in confirmed trend | Alert |
-| 3 | 🟡 PARTIAL | All but 1 TF aligned | Alert |
+| 1 | 🟢 BUY SIGNAL / 🔴 SELL SIGNAL | All TFs aligned (3/3) | Alert |
+| 2 | 📈 BUY DIP / 📉 SELL RALLY | RSI pullback in confirmed trend | Alert |
+| 3 | 🟡 PARTIAL | All but 1 TF aligned (2/3) | Configurable via `PARTIAL_SIGNALS_ENABLED` |
 | 4 | 👀 WATCH | 1 TF crossed + others approaching | Disabled by default |
 
-> TREND_SELL_RALLY is currently **disabled** (`trend.sell-rally-enabled: false`) due to −0.79R expectancy in backtest.
+> SELL RALLY is currently **disabled** (`trend.sell-rally-enabled: false`) due to −0.79R expectancy in backtest.
+
+> `PARTIAL_SIGNALS_ENABLED=false` disables tier 3 entirely — only 3/3 full signals fire.
 
 ## Trade Duration & IG Financing Costs
 
@@ -171,6 +173,25 @@ docker-compose logs -f app                             # Check logs
 | [docs/risk-register.md](docs/risk-register.md) | Risks, constraints, and operational warnings |
 | [docs/archived/requirements.md](docs/archived/requirements.md) | Original historical specification (not the current source of truth) |
 | [docs/archived/backtest-report.md](docs/archived/backtest-report.md) | Apr 2026 signal quality backtest (archived — findings actioned) |
+
+## How the Indicators Work — Plain English
+
+**RSI — Relative Strength Index**
+Measures whether recent closes have mostly been gains or losses over 14 candles. If prices went up 14 times in a row, RSI = ~100 (fully overbought). If they fell 14 times, RSI = ~0 (oversold). In practice: RSI above 70 means buyers are exhausted ("who's left to buy?") and a drop is likely. RSI below 30 means sellers are exhausted and a bounce is likely. Calculated entirely from our own candle history — no external API call.
+
+**EMA — Exponential Moving Average**
+A weighted average of the last N closing prices where recent prices count more than old ones. Formula: `EMA = price × k + prev_EMA × (1 − k)` where `k = 2 / (period + 1)`. With period 20: each new hourly close contributes ~9.5% weight, the running average carries the rest. We use it as a trend line — if the current price is above EMA20(1h), the market is in an uptrend.
+
+**BUY DIP**
+A trend-following entry signal. Requires three things simultaneously: (1) the market is in a confirmed uptrend (price > EMA20 on 1h), (2) the fastest timeframe RSI (15m) has pulled back below 45 — a meaningful cooldown from overbought, not just noise — and (3) ADX and MACD confirm momentum is still intact. Interpretation: "the trend is up, price dipped, buy the dip."
+
+**ADX — Average Directional Index**
+Measures *how strong* a trend is, not its direction. Scale is 0–100: below 20 = market is ranging/going sideways (trend signals unreliable); above 25 = established trend; above 40 = very strong. Calculated from our candle_history (high/low/close) using Wilder's method, needs 29 hours of 1h data to produce a first value. Used as a gate: BUY DIP is blocked when ADX < 20 because there is no real trend to buy the dip of.
+
+**MACD — Moving Average Convergence Divergence**
+Measures momentum speed using two EMAs: a fast one (EMA12) and a slow one (EMA26). The gap between them is the MACD line. A 9-period EMA of that line is the signal line. The histogram = MACD line minus signal line. Positive and rising histogram = bullish momentum building. Used as a second gate for BUY DIP: if the histogram is negative *and* falling, momentum is deteriorating — entry is blocked. Uses 12/26/9 (not 20) because that is the canonical standard configuration (Appel, 1979).
+
+---
 
 ⚠️ **Personal use only — not financial advice — MiFID II: no public distribution**
 

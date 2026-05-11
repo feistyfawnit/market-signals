@@ -29,6 +29,7 @@ import java.util.stream.Collectors;
 public class NotificationService {
     
     private final ClaudeEnrichmentService claudeEnrichmentService;
+    private final DeepSeekEnrichmentService deepSeekEnrichmentService;
     private final AppSettingsService appSettingsService;
     private final TelegramNotificationService telegramNotificationService;
     private final TrendDetectionService trendDetectionService;
@@ -109,7 +110,8 @@ public class NotificationService {
         }
         
         String aiContext = claudeEnrichmentService.enrichSignal(signal);
-        sendNotification(signal, aiContext);
+        String deepSeekContext = deepSeekEnrichmentService.enrich(signal).orElse(null);
+        sendNotification(signal, aiContext, deepSeekContext);
     }
     
     public void enableNoTradeMode() {
@@ -144,9 +146,9 @@ public class NotificationService {
         return Set.copyOf(mutedSymbols);
     }
 
-    private void sendNotification(RsiSignal signal, String aiContext) {
+    private void sendNotification(RsiSignal signal, String aiContext, String deepSeekContext) {
         String title = buildNotificationTitle(signal);
-        String message = buildNotificationMessage(signal, aiContext);
+        String message = buildNotificationMessage(signal, aiContext, deepSeekContext);
         telegramNotificationService.send(title, message);
     }
     
@@ -169,14 +171,14 @@ public class NotificationService {
             case PARTIAL_OVERBOUGHT -> "Partial Sell";
             case WATCH_OVERSOLD -> "WATCH Buy";
             case WATCH_OVERBOUGHT -> "WATCH Sell";
-            case TREND_BUY_DIP -> "TREND BUY (Dip)";
-            case TREND_SELL_RALLY -> "TREND SELL (Rally)";
+            case TREND_BUY_DIP -> "BUY DIP";
+            case TREND_SELL_RALLY -> "SELL RALLY";
         };
         
         return "<b>" + emoji + " " + escapeHtml(signal.getInstrumentName()) + " " + signalName + "</b>";
     }
     
-    private String buildNotificationMessage(RsiSignal signal, String aiContext) {
+    private String buildNotificationMessage(RsiSignal signal, String aiContext, String deepSeekContext) {
         StringBuilder message = new StringBuilder();
 
         // Price (bold for emphasis)
@@ -252,6 +254,9 @@ public class NotificationService {
 
         if (aiContext != null && !aiContext.isBlank()) {
             message.append("\n\uD83D\uDCF0 ").append(escapeHtml(aiContext));
+        }
+        if (deepSeekContext != null && !deepSeekContext.isBlank()) {
+            message.append("\n\uD83E\uDD16 ").append(escapeHtml(deepSeekContext));
         }
 
         return message.toString();

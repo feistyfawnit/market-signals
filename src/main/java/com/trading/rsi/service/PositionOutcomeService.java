@@ -91,14 +91,25 @@ public class PositionOutcomeService {
 
         // Guard: skip if open position exists or signal fired within cooldown window
         if (positionOutcomeRepository.existsBySymbolAndExitTimeIsNull(signal.getSymbol())) {
-            log.debug("Skipping position for {} {} — open position already exists",
-                    signal.getSymbol(), signal.getSignalType());
-            filterEventCounterService.record("DUPE_OPEN_POSITION", signal.getSymbol());
-            return;
+            Optional<PositionOutcome> openPos =
+                    positionOutcomeRepository.findFirstBySymbolAndExitTimeIsNull(signal.getSymbol());
+            boolean isOverdue = openPos
+                    .map(p -> p.getEntryTime().plus(MAX_HOLDING).isBefore(Instant.now()))
+                    .orElse(false);
+            if (isOverdue) {
+                log.info("Open position for {} is overdue (>{}h) — force-closing before new {} entry",
+                        signal.getSymbol(), MAX_HOLDING.toHours(), signal.getSignalType());
+                openPos.ifPresent(p -> checkAndClosePosition(p, Instant.now()));
+            } else {
+                log.info("Skipping position for {} {} — open position already exists (DUPE_OPEN_POSITION)",
+                        signal.getSymbol(), signal.getSignalType());
+                filterEventCounterService.record("DUPE_OPEN_POSITION", signal.getSymbol());
+                return;
+            }
         }
         Instant cooldownSince = Instant.now().minus(Duration.ofHours(signalCooldownHours));
         if (positionOutcomeRepository.existsBySymbolSince(signal.getSymbol(), cooldownSince)) {
-            log.debug("Skipping position for {} {} — signal within last {}h cooldown",
+            log.info("Skipping position for {} {} — signal within last {}h cooldown (POSITION_COOLDOWN)",
                     signal.getSymbol(), signal.getSignalType(), signalCooldownHours);
             filterEventCounterService.record("POSITION_COOLDOWN", signal.getSymbol());
             return;

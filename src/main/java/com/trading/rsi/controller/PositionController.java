@@ -2,6 +2,7 @@ package com.trading.rsi.controller;
 
 import com.trading.rsi.service.PositionOutcomeService;
 import com.trading.rsi.service.PositionReportService;
+import com.trading.rsi.service.SignalGapService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,6 +19,7 @@ public class PositionController {
 
     private final PositionOutcomeService positionOutcomeService;
     private final PositionReportService positionReportService;
+    private final SignalGapService signalGapService;
 
     @GetMapping("/pnl-summary")
     public Map<String, Object> getPnlSummary() {
@@ -32,6 +34,11 @@ public class PositionController {
     @GetMapping(value = "/pnl-report/csv", produces = "text/csv")
     public String getPnlCsv() {
         return positionReportService.generateCsv();
+    }
+
+    @GetMapping("/signal-gaps")
+    public Map<String, Object> getSignalGaps() {
+        return signalGapService.getSignalGapsReport();
     }
 
     @PostMapping("/recalculate")
