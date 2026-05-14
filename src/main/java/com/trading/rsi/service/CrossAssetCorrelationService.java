@@ -138,6 +138,7 @@ public class CrossAssetCorrelationService {
                     case CRYPTO -> cryptoRising.add(sym);
                     case INDEX -> indexRising.add(sym);
                     case COMMODITY -> commodityRising.add(sym);
+                    case FX -> {}
                 }
             }
             if (falling.contains(sym)) {
@@ -145,6 +146,7 @@ public class CrossAssetCorrelationService {
                     case CRYPTO -> cryptoFalling.add(sym);
                     case INDEX -> indexFalling.add(sym);
                     case COMMODITY -> commodityFalling.add(sym);
+                    case FX -> {}
                 }
             }
         }
