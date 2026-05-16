@@ -13,11 +13,10 @@ A production-grade Spring Boot service that monitors financial instruments for m
 - ✅ Partial signal monitoring with lagging-TF follow-ups
 - ✅ No-trade mode + per-symbol muting (persistent across restarts via DB)
 - ✅ Active position tracking — gates alerts until a trade is open
-- ✅ Claude AI signal enrichment (optional)
-- ✅ Signal CSV archival with outcome backfill (1h/4h/24h price tracking)
+- ✅ DeepSeek AI signal enrichment (optional — adds market context to Telegram alerts)
+- ✅ Signal CSV archival with outcome backfill
 - ✅ Auto P&L tracking — positions opened on signal, TP/SL checked hourly, daily markdown report
 - ✅ REST API for instruments, signals, settings, positions, retrospective analysis
-- ✅ Auto-trading scaffolded (Phase 4 — hard-disabled, requires demo validation)
 
 ## Deployment
 
@@ -133,12 +132,10 @@ See [docs/api.md](docs/api.md) for adding instruments via the REST API.
 |---|---|---|---|
 | 1 | 🟢 BUY SIGNAL / 🔴 SELL SIGNAL | All TFs aligned (3/3) | Alert |
 | 2 | 📈 BUY DIP / 📉 SELL RALLY | RSI pullback in confirmed trend | Alert |
-| 3 | 🟡 PARTIAL | All but 1 TF aligned (2/3) | Configurable via `PARTIAL_SIGNALS_ENABLED` |
-| 4 | 👀 WATCH | 1 TF crossed + others approaching | Disabled by default |
+| 3 | 🟡 PARTIAL | All but 1 TF aligned (2/3) | Off by default (`PARTIAL_SIGNALS_ENABLED=false`) |
+| 4 | 👀 WATCH | 1 TF crossed + others approaching | Off by default (`WATCH_SIGNALS_ENABLED=false`) |
 
 > SELL RALLY is currently **disabled** (`trend.sell-rally-enabled: false`) due to −0.79R expectancy in backtest.
-
-> `PARTIAL_SIGNALS_ENABLED=false` disables tier 3 entirely — only 3/3 full signals fire.
 
 ## Trade Duration & IG Financing Costs
 
@@ -189,7 +186,11 @@ A trend-following entry signal. Requires three things simultaneously: (1) the ma
 Measures *how strong* a trend is, not its direction. Scale is 0–100: below 20 = market is ranging/going sideways (trend signals unreliable); above 25 = established trend; above 40 = very strong. Calculated from our candle_history (high/low/close) using Wilder's method, needs 29 hours of 1h data to produce a first value. Used as a gate: BUY DIP is blocked when ADX < 20 because there is no real trend to buy the dip of.
 
 **MACD — Moving Average Convergence Divergence**
-Measures momentum speed using two EMAs: a fast one (EMA12) and a slow one (EMA26). The gap between them is the MACD line. A 9-period EMA of that line is the signal line. The histogram = MACD line minus signal line. Positive and rising histogram = bullish momentum building. Used as a second gate for BUY DIP: if the histogram is negative *and* falling, momentum is deteriorating — entry is blocked. Uses 12/26/9 (not 20) because that is the canonical standard configuration (Appel, 1979).
+Measures momentum speed using two EMAs: fast (EMA12) and slow (EMA26). The gap between them is the MACD line. A 9-period EMA of that line is the signal line. Histogram = MACD line − signal line. Positive and rising = bullish momentum building.
+
+Used as a second gate for BUY DIP: if the histogram is negative *and* falling, entry is blocked.
+
+A third optional gate checks for **MACD divergence**: when price makes a lower low but the MACD line makes a higher low, hidden upward momentum is present — this *confirms* the entry. If divergence is absent *and* the histogram is also weak (positive but not rising, or vice versa), entry is blocked. If the histogram is clearly bullish (positive *and* rising), entry passes regardless of divergence — to avoid over-tightening. Divergence is currently **OFF** (`macd-divergence-enabled: false`) — monitoring suppression counts for 1 week before enabling. All data fetches are bounded (37 candles for histogram, 46 for divergence — no unbounded DB queries). Uses 12/26/9 (Appel, 1979).
 
 ---
 
