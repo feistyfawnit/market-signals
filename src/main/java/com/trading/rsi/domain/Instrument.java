@@ -74,6 +74,9 @@ public class Instrument {
     @Column(name = "rsi_signals_enabled")
     private Boolean rsiSignalsEnabled = true;
 
+    @Column(name = "ig_epic")
+    private String igEpic;
+
     @Column(name = "market_close_utc")
     private Integer marketCloseUtc;
     

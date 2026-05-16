@@ -27,5 +27,6 @@ public class WatchlistProperties {
         private Boolean trendBuyDipEnabled = true;
         private Boolean trendBuyDipNotify = true;
         private Boolean rsiSignalsEnabled = true;
+        private String igEpic;
     }
 }
