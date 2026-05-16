@@ -121,8 +121,8 @@ public class IGTradingService {
 
         try {
             String direction = switch (signal.getSignalType()) {
-                case OVERSOLD -> "BUY";
-                case OVERBOUGHT -> "SELL";
+                case OVERSOLD, TREND_BUY_DIP -> "BUY";
+                case OVERBOUGHT, TREND_SELL_RALLY -> "SELL";
                 default -> null;
             };
 
@@ -136,7 +136,7 @@ public class IGTradingService {
                     direction,
                     "1",
                     "MARKET",
-                    true
+                    false
             );
 
             authService.getClient().post()

@@ -6,6 +6,22 @@
 
 ---
 
+## 2026-05-17 — IGTradingService fixes; Phase 4 trailing stop design
+
+### Fixes
+- `IGTradingService.executeTrade()`: added `TREND_BUY_DIP` and `TREND_SELL_RALLY` to the direction switch. Previously both hit `default → null` and silently aborted — meaning auto-execution (when enabled) would have ignored all TREND_BUY_DIP signals entirely.
+- `guaranteedStop: false` in `DealRequest`: guaranteed stops incur an IG premium charge per trade and cannot be freely modified (required for trailing). Standard stops are free to place and free to update via `PUT /positions/otc/{dealId}`.
+
+### Phase 4 trailing stop design agreed
+Architecture: direction-aware ratcheting stop (LONG: trail up, SHORT: trail down, never reverse). Implementation requires: (1) store `igDealId` from IG open-position response, (2) `updateStopLevel()` method calling `PUT /positions/otc/{dealId}`, (3) IG epic code mapping for Binance-sourced instruments (SOLUSDT → IG SOL CFD epic — needs live curl verification), (4) Telegram notification on each stop move. Entry confirmation via Telegram optional. Stop modifications incur no IG charge.
+
+### Blockers before Phase 4 can be enabled
+- IG epic codes for crypto not yet verified (`SOLUSDT` is Binance notation, not a valid IG epic).
+- `igDealId` not stored in `position_outcomes` — no handle on open positions after a restart.
+- Demo account testing required before live.
+
+---
+
 ## 2026-05-16 — Partial suppression, Gold RSI block, P&L labels, MACD divergence gate
 
 ### Performance context
