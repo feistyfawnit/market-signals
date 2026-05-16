@@ -6,6 +6,39 @@
 
 ---
 
+## 2026-05-16 — Partial suppression, Gold RSI block, P&L labels, MACD divergence gate
+
+### Performance context
+Last 5 closed signals positive. Crypto TREND_BUY_DIP (SOL/BTC/ETH) appears to be working under current filter stack (ADX, MACD histogram, volume). IG indices remain disabled for TREND_BUY_DIP pending more data — DAX/FTSE/SP500 continue to accumulate position_outcomes for later review. Trailing stop automation (move stop to break-even after +€50 move) noted as a future Phase 4 roadmap item.
+
+### Task 1 — PARTIAL_SIGNALS_ENABLED=false (.env only)
+
+Added `PARTIAL_SIGNALS_ENABLED=false` to `.env` (was defaulting `true`). Also added `WATCH_SIGNALS_ENABLED=false` explicitly (was already defaulting `false` via YAML default, now visible in `.env`). No code changes — only env var override. Effect: only 3/3 full OVERSOLD/OVERBOUGHT signals and TREND_BUY_DIP fire. Rationale: partial signals have generated noise without follow-through; full alignment only until further data.
+
+### Task 2 — Gold RSI signal suppression (`rsi-signals-enabled: false`)
+
+Gold (`CS.D.USCGC.TODAY.IP`) has `trend-buy-dip-enabled: false` already but standard OVERSOLD/PARTIAL_OVERSOLD signals still fired historically at −1.00R (0% TP, 100% SL). Added `rsi-signals-enabled: false` per-instrument flag to suppress ALL RSI signal types for Gold while keeping the instrument `enabled: true` (price data still accumulates for `CrossAssetCorrelationService` commodity regime detection).
+
+Implementation: new `rsiSignalsEnabled` Boolean column on `instruments` table (Hibernate auto-migrates, default `true`). Guard added in `SignalDetectionService.analyzeInstrument()` after RSI collection loop but before `detectSignals()` — price history collection is unaffected. Memory impact: one boolean field per instrument row (negligible). YAML is source of truth (synced via `DataInitializer` on restart, same pattern as `trendBuyDipEnabled`).
+
+### Task 3 — P&L report: Trail+/Expire exit labels
+
+Changed display-only label in `PositionReportService.formatClosedRowCompact()`:
+- `!tpHit && !slHit && pnlPct > 0` → **Trail+** (profitable disciplined trailing exit)
+- `!tpHit && !slHit && pnlPct <= 0` → **Expire** (position ran out of time without profit)
+
+Previously both were labelled `24h`. P&L numbers unchanged. No DB columns, no API endpoints, no domain model changes.
+
+### Task 4 — MACD Divergence gate (deployed OFF)
+
+Added `MacdCalculator.computeDivergence(symbol, timeframe, fastPeriod, slowPeriod, signalPeriod, lookback=20)`. Bounded fetch: `Pageable.ofSize(slowPeriod + lookback)` = 46 candles at defaults (~11 KB). Divergence logic: split lookback window into two halves; track price extreme and corresponding MACD line value in each half. Bullish: second-half price low < first-half low AND MACD at that low is higher. Bearish: second-half price high > first-half high AND MACD lower.
+
+Also confirmed `compute()` is already bounded (`Pageable.ofSize(slowPeriod + signalPeriod + 2)` = 37 candles, ~9 KB vs the prior unbounded `findBySymbolAndTimeframeOrderByCandleTimeAsc` which loaded up to 1,440 candles / ~360 KB).
+
+Wired into `TrendDetectionService.checkForTrendEntry()` behind `macd-divergence-enabled: ${TREND_MACD_DIVERGENCE_ENABLED:false}`. Logic: when enabled and histogram is clearly bullish (>0 AND rising), entry passes regardless. When histogram is only partially bullish AND divergence is absent → block + record `MACD_DIVERGENCE_ABSENT` in `filter_event_counts`. `Optional.empty()` (warmup) is pass-through. **Deployed OFF. Monitor `filter_event_counts` for 1 week before enabling.**
+
+---
+
 ## 2026-05-10 — Trend signal gap analysis
 
 ### New endpoint: GET /api/positions/signal-gaps

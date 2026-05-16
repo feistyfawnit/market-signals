@@ -26,5 +26,6 @@ public class WatchlistProperties {
         private String timeframes = "1m,5m,1h,4h";
         private Boolean trendBuyDipEnabled = true;
         private Boolean trendBuyDipNotify = true;
+        private Boolean rsiSignalsEnabled = true;
     }
 }

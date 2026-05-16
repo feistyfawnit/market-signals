@@ -105,6 +105,10 @@ rsi:
     crypto-volume-filter-enabled: ${TREND_CRYPTO_VOLUME_FILTER_ENABLED:true}
     crypto-volume-multiplier: ${TREND_CRYPTO_VOLUME_MULTIPLIER:1.2}
     crypto-volume-lookback: ${TREND_CRYPTO_VOLUME_LOOKBACK:20}
+    # MACD divergence gate for TREND_BUY_DIP (deployed OFF — monitor via filter_event_counts for 1 week before enabling).
+    # Bullish divergence confirms entry; absence when histogram is weak blocks entry.
+    # When histogram is clearly bullish (>0 AND rising), entry passes regardless.
+    macd-divergence-enabled: ${TREND_MACD_DIVERGENCE_ENABLED:false}
 
   correlation:
     lookback-minutes: ${CORRELATION_LOOKBACK_MINUTES:15}
@@ -266,6 +270,7 @@ watchlist:
       overbought-threshold: 70
       timeframes: "15m,1h,4h"
       trend-buy-dip-enabled: false  # −1.00R backtest (6 signals, 0% TP, 100% SL)
+      rsi-signals-enabled: false  # May 2026: −1.00R on OVERSOLD/PARTIAL_OVERSOLD too; price data still feeds CrossAssetCorrelationService
     # Oil: FSD (forward) epic expired — switched to USS (cash/rolling) contract
     - symbol: CC.D.LCO.USS.IP
       name: Oil (Brent)

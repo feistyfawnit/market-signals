@@ -8,8 +8,11 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 
 /**
  * Computes the MACD (Moving Average Convergence Divergence) indicator
@@ -43,14 +46,22 @@ public class MacdCalculator {
         }
     }
 
+    /** Divergence result: MACD line vs price over a lookback window. */
+    public record MacdDivergenceResult(boolean bullishDivergence, boolean bearishDivergence, String reason) {}
+
     public Optional<MacdHistogram> compute(String symbol, String timeframe,
                                             int fastPeriod, int slowPeriod, int signalPeriod) {
         if (fastPeriod < 2 || slowPeriod <= fastPeriod || signalPeriod < 2) {
             return Optional.empty();
         }
 
-        List<CandleHistory> candles = candleHistoryRepository
-                .findBySymbolAndTimeframeOrderByCandleTimeAsc(symbol, timeframe);
+        // Memory: bounded fetch — Pageable.ofSize(slowPeriod + signalPeriod + 2).
+        // At default params (26 + 9 + 2 = 37 candles, ~9 KB) vs the prior unbounded query
+        // which loaded up to 1,440 candles (~360 KB) — the highest previous heap risk.
+        List<CandleHistory> candles = new ArrayList<>(candleHistoryRepository
+                .findBySymbolAndTimeframeOrderByCandleTimeDesc(symbol, timeframe,
+                        Pageable.ofSize(slowPeriod + signalPeriod + 2)));
+        Collections.reverse(candles); // DESC → ASC for EMA computation
 
         // We need enough bars so that:
         //  - the slow EMA is seeded (slow bars), then
@@ -94,6 +105,85 @@ public class MacdCalculator {
         return Optional.of(new MacdHistogram(
                 BigDecimal.valueOf(histLast).setScale(6, RoundingMode.HALF_UP),
                 BigDecimal.valueOf(histPrev).setScale(6, RoundingMode.HALF_UP)));
+    }
+
+    /**
+     * Computes MACD divergence over a bounded lookback window.
+     *
+     * Memory: Pageable.ofSize(slowPeriod + lookback) — at default params (26 + 20 = 46 candles, ~11 KB).
+     * The prior unbounded compute() loaded up to 1,440 candles (~360 KB); this method never
+     * exceeds slowPeriod + lookback rows regardless of how much history is stored.
+     *
+     * Divergence logic: split the lookback window into two halves.
+     *   Bullish: second-half price low &lt; first-half price low AND
+     *            MACD line at that low is higher (hidden upward momentum).
+     *   Bearish: second-half price high &gt; first-half price high AND
+     *            MACD line at that high is lower (hidden downward momentum).
+     *
+     * Returns Optional.empty() when insufficient candle history exists (warmup-friendly).
+     */
+    public Optional<MacdDivergenceResult> computeDivergence(String symbol, String timeframe,
+            int fastPeriod, int slowPeriod, int signalPeriod, int lookback) {
+        if (fastPeriod < 2 || slowPeriod <= fastPeriod || lookback < 4) {
+            return Optional.empty();
+        }
+
+        List<CandleHistory> raw = candleHistoryRepository
+                .findBySymbolAndTimeframeOrderByCandleTimeDesc(symbol, timeframe,
+                        Pageable.ofSize(slowPeriod + lookback));
+        List<CandleHistory> candles = new ArrayList<>(raw);
+        Collections.reverse(candles);
+
+        int n = candles.size();
+        if (n < slowPeriod + lookback) {
+            log.debug("MACD divergence unavailable for {}:{} — only {} candles (need {})",
+                    symbol, timeframe, n, slowPeriod + lookback);
+            return Optional.empty();
+        }
+
+        double[] closes = new double[n];
+        for (int i = 0; i < n; i++) {
+            closes[i] = candles.get(i).getClose().doubleValue();
+        }
+
+        double[] fastEma = ema(closes, fastPeriod);
+        double[] slowEma = ema(closes, slowPeriod);
+
+        int macdStart = slowPeriod - 1; // MACD line valid from this index onward
+        int divLen = n - macdStart;     // = lookback + 1
+        double[] macdLine = new double[divLen];
+        for (int i = 0; i < divLen; i++) {
+            macdLine[i] = fastEma[macdStart + i] - slowEma[macdStart + i];
+        }
+
+        int half = divLen / 2;
+
+        // Find the price extreme and its corresponding MACD value in each half.
+        double firstLowClose = Double.MAX_VALUE, firstLowMacd = 0;
+        double firstHighClose = -Double.MAX_VALUE, firstHighMacd = 0;
+        for (int i = 0; i < half; i++) {
+            double c = closes[macdStart + i];
+            double m = macdLine[i];
+            if (c < firstLowClose)  { firstLowClose = c;  firstLowMacd = m; }
+            if (c > firstHighClose) { firstHighClose = c; firstHighMacd = m; }
+        }
+        double secondLowClose = Double.MAX_VALUE, secondLowMacd = 0;
+        double secondHighClose = -Double.MAX_VALUE, secondHighMacd = 0;
+        for (int i = half; i < divLen; i++) {
+            double c = closes[macdStart + i];
+            double m = macdLine[i];
+            if (c < secondLowClose)  { secondLowClose = c;  secondLowMacd = m; }
+            if (c > secondHighClose) { secondHighClose = c; secondHighMacd = m; }
+        }
+
+        boolean bullish = secondLowClose < firstLowClose && secondLowMacd > firstLowMacd;
+        boolean bearish = secondHighClose > firstHighClose && secondHighMacd < firstHighMacd;
+        String reason = bullish ? "price lower low, MACD higher low"
+                      : bearish ? "price higher high, MACD lower high"
+                      : "no divergence detected";
+
+        log.debug("MACD divergence {}:{} — bullish={} bearish={} ({})", symbol, timeframe, bullish, bearish, reason);
+        return Optional.of(new MacdDivergenceResult(bullish, bearish, reason));
     }
 
     /**

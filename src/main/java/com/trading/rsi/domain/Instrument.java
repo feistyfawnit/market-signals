@@ -64,6 +64,16 @@ public class Instrument {
     @Column(name = "trend_buy_dip_notify")
     private Boolean trendBuyDipNotify = true;
 
+    /**
+     * When false, all RSI-based signals (OVERSOLD, OVERBOUGHT, PARTIAL_*, WATCH_*) are
+     * suppressed for this instrument. Price data still accumulates and the instrument
+     * remains eligible for CrossAssetCorrelationService regime detection.
+     * Use for instruments that produce zero edge on RSI signals (e.g. Gold).
+     */
+    @Builder.Default
+    @Column(name = "rsi_signals_enabled")
+    private Boolean rsiSignalsEnabled = true;
+
     @Column(name = "market_close_utc")
     private Integer marketCloseUtc;
     

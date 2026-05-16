@@ -41,6 +41,7 @@ public class DataInitializer implements ApplicationRunner {
                         .timeframes(config.getTimeframes())
                         .trendBuyDipEnabled(config.getTrendBuyDipEnabled())
                         .trendBuyDipNotify(config.getTrendBuyDipNotify())
+                        .rsiSignalsEnabled(config.getRsiSignalsEnabled())
                         .build();
                 instrumentRepository.save(instrument);
                 log.info("Seeded instrument: {} ({})", config.getName(), config.getSymbol());
@@ -58,6 +59,7 @@ public class DataInitializer implements ApplicationRunner {
                 // trendBuyDipEnabled / trendBuyDipNotify are YAML-controlled (strategy config, not runtime state)
                 instrument.setTrendBuyDipEnabled(config.getTrendBuyDipEnabled());
                 instrument.setTrendBuyDipNotify(config.getTrendBuyDipNotify());
+                instrument.setRsiSignalsEnabled(config.getRsiSignalsEnabled());
                 instrumentRepository.save(instrument);
                 log.debug("Synced instrument from YAML: {} (enabled={} - preserved from DB)", config.getSymbol(), instrument.getEnabled());
                 updated++;

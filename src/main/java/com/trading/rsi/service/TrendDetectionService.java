@@ -103,6 +103,9 @@ public class TrendDetectionService {
     @Value("${rsi.trend.macd-signal-period:9}")
     private int macdSignalPeriod;
 
+    @Value("${rsi.trend.macd-divergence-enabled:false}")
+    private boolean macdDivergenceEnabled;
+
     @Value("${rsi.trend.crypto-volume-filter-enabled:true}")
     private boolean cryptoVolumeFilterEnabled;
 
@@ -337,6 +340,29 @@ public class TrendDetectionService {
                         hist.get().previous().toPlainString());
                 filterEventCounterService.record("MACD_HISTOGRAM", instrument.getSymbol());
                 return;
+            }
+        }
+
+        // MACD divergence gate for TREND_BUY_DIP.
+        // Deployed OFF (TREND_MACD_DIVERGENCE_ENABLED=false) — monitor via filter_event_counts for 1 week.
+        // When enabled: bullish divergence confirms entry; absence blocks entry unless histogram is
+        // clearly bullish (>0 AND rising), in which case entry passes regardless (don't over-tighten).
+        // Optional.empty() (warmup) is pass-through — same pattern as histogram gate.
+        if (macdDivergenceEnabled && trend == TrendState.STRONG_UPTREND) {
+            Optional<MacdCalculator.MacdDivergenceResult> div = macdCalculator.computeDivergence(
+                    instrument.getSymbol(), emaTrendTimeframe,
+                    macdFastPeriod, macdSlowPeriod, macdSignalPeriod, 20);
+            if (div.isPresent()) {
+                Optional<MacdCalculator.MacdHistogram> hist = macdCalculator.compute(
+                        instrument.getSymbol(), emaTrendTimeframe,
+                        macdFastPeriod, macdSlowPeriod, macdSignalPeriod);
+                boolean histClearlyBullish = hist.map(h -> h.isBullish() && h.isRising()).orElse(false);
+                if (!histClearlyBullish && !div.get().bullishDivergence()) {
+                    log.info("Trend entry suppressed for {} — MACD divergence absent and histogram not clearly bullish on {} ({})",
+                            instrument.getSymbol(), emaTrendTimeframe, div.get().reason());
+                    filterEventCounterService.record("MACD_DIVERGENCE_ABSENT", instrument.getSymbol());
+                    return;
+                }
             }
         }
 

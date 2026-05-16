@@ -376,7 +376,7 @@ public class PositionReportService {
         boolean win = p.getPnlPct().compareTo(BigDecimal.ZERO) > 0;
         boolean tp = Boolean.TRUE.equals(p.getTpHit());
         boolean sl = Boolean.TRUE.equals(p.getSlHit());
-        String exitType = tp ? "TP" : sl ? "SL" : "24h";
+        String exitType = tp ? "TP" : sl ? "SL" : (win ? "Trail+" : "Expire");
         String result = (win ? "✅" : "❌") + exitType;
         double estEurVal = estEur(p, riskEur);
 

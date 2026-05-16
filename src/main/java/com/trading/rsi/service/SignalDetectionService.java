@@ -111,6 +111,11 @@ public class SignalDetectionService {
             log.debug("Insufficient data to analyze {}", instrument.getSymbol());
             return;
         }
+
+        if (Boolean.FALSE.equals(instrument.getRsiSignalsEnabled())) {
+            log.debug("RSI signal detection skipped for {} — rsi-signals-enabled=false (price history still accumulates)", instrument.getSymbol());
+            return;
+        }
         
         detectSignals(instrument, rsiValues, currentPrice, timeframes, triggerCandle);
 
