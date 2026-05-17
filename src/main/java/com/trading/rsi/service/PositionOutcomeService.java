@@ -41,7 +41,7 @@ public class PositionOutcomeService {
     private final IGTradingService igTradingService;
     private final TelegramNotificationService telegramNotificationService;
 
-    private static final Duration MAX_HOLDING = Duration.ofHours(24);
+    private static final Duration MAX_HOLDING = Duration.ofHours(16); // lowered 24→16h May 2026 — frees slot for next signal sooner when position stagnates
     private static final String ATR_TIMEFRAME = "15m";
 
     private static final Set<SignalLog.SignalType> TRACKED_SIGNALS = Set.of(
