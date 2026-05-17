@@ -83,4 +83,16 @@ public class PositionOutcome {
 
     @Column(name = "stoch_d", precision = 6, scale = 2)
     private BigDecimal stochD;
+
+    @Column(name = "ig_deal_ref")
+    private String igDealRef;
+
+    @Column(name = "ig_deal_id")
+    private String igDealId;
+
+    /** Initial stop distance in price points, computed at position open and never changed.
+     *  Used by trailing stop logic to compute the 50%-of-stop threshold without losing
+     *  the original value after slPrice has been updated by trailing. */
+    @Column(name = "stop_pts")
+    private Long stopPts;
 }

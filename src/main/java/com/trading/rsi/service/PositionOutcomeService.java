@@ -38,6 +38,8 @@ public class PositionOutcomeService {
     private final TrendDetectionService trendDetectionService;
     private final AtrCalculator atrCalculator;
     private final FilterEventCounterService filterEventCounterService;
+    private final IGTradingService igTradingService;
+    private final TelegramNotificationService telegramNotificationService;
 
     private static final Duration MAX_HOLDING = Duration.ofHours(24);
     private static final String ATR_TIMEFRAME = "15m";
@@ -164,6 +166,7 @@ public class PositionOutcomeService {
                 .rsiSlow(rsiSlow)
                 .stochK(stochK)
                 .stochD(stochD)
+                .stopPts(stopPts)
                 .build();
 
         positionOutcomeRepository.save(position);
@@ -189,6 +192,115 @@ public class PositionOutcomeService {
                 log.error("Error checking position {} for {}: {}", pos.getId(), pos.getSymbol(), e.getMessage());
             }
         }
+
+        reconcileWithIg(openPositions);
+    }
+
+    /**
+     * Every 15 minutes: for positions with an IG deal ID, check if unrealised gain has
+     * crossed 50% of the initial stop distance and ratchet the stop toward current price.
+     * Stop only moves in the profitable direction — never reverses.
+     */
+    @Scheduled(fixedDelay = 15 * 60 * 1000L)
+    public void checkTrailingStops() {
+        if (!igTradingService.isIgAvailable()) return;
+
+        List<PositionOutcome> candidates = positionOutcomeRepository.findByExitTimeIsNull().stream()
+                .filter(p -> p.getIgDealId() != null && p.getStopPts() != null)
+                .toList();
+
+        if (candidates.isEmpty()) return;
+
+        log.debug("Checking trailing stops for {} IG-linked positions", candidates.size());
+        for (PositionOutcome pos : candidates) {
+            try {
+                tryTrailStop(pos);
+            } catch (Exception e) {
+                log.error("Trail-stop error for position {} ({}): {}", pos.getId(), pos.getSymbol(), e.getMessage());
+            }
+        }
+    }
+
+    private void tryTrailStop(PositionOutcome pos) {
+        BigDecimal currentPrice = priceHistoryService.getLatestPrice(pos.getSymbol());
+        if (currentPrice == null) return;
+
+        long stopPts = pos.getStopPts();
+        long trailThresholdPts = Math.max(1L, stopPts / 2);   // 50% of initial stop distance
+
+        BigDecimal unrealisedGain;
+        if (Boolean.TRUE.equals(pos.getIsLong())) {
+            unrealisedGain = currentPrice.subtract(pos.getEntryPrice());
+        } else {
+            unrealisedGain = pos.getEntryPrice().subtract(currentPrice);
+        }
+
+        if (unrealisedGain.compareTo(BigDecimal.valueOf(trailThresholdPts)) < 0) return;
+
+        BigDecimal newStopLevel;
+        if (Boolean.TRUE.equals(pos.getIsLong())) {
+            newStopLevel = currentPrice.subtract(BigDecimal.valueOf(stopPts));
+            if (newStopLevel.compareTo(pos.getSlPrice()) <= 0) return;  // never reverse
+        } else {
+            newStopLevel = currentPrice.add(BigDecimal.valueOf(stopPts));
+            if (newStopLevel.compareTo(pos.getSlPrice()) >= 0) return;  // never reverse
+        }
+
+        BigDecimal oldStop = pos.getSlPrice();
+
+        boolean igUpdated = igTradingService.updateStopLevel(pos.getIgDealId(), newStopLevel);
+        if (!igUpdated) {
+            log.warn("IG stop update failed for {} deal {} — DB stop not moved", pos.getSymbol(), pos.getIgDealId());
+            return;
+        }
+
+        pos.setSlPrice(newStopLevel);
+        positionOutcomeRepository.save(pos);
+
+        BigDecimal gainPct = unrealisedGain
+                .divide(pos.getEntryPrice(), 4, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100))
+                .setScale(1, RoundingMode.HALF_UP);
+
+        String title = String.format("\uD83D\uDD12 %s stop trailed: %s \u2192 %s (+%s%% gain)",
+                displayName(pos.getSymbol()),
+                oldStop.stripTrailingZeros().toPlainString(),
+                newStopLevel.stripTrailingZeros().toPlainString(),
+                gainPct.toPlainString());
+        telegramNotificationService.send(title, "");
+        log.info("Trail stop: {} igDealId={} {} \u2192 {} (gain={}%)",
+                pos.getSymbol(), pos.getIgDealId(),
+                oldStop.toPlainString(), newStopLevel.toPlainString(), gainPct.toPlainString());
+    }
+
+    private void reconcileWithIg(List<PositionOutcome> openPositions) {
+        List<PositionOutcome> igLinked = openPositions.stream()
+                .filter(p -> p.getIgDealId() != null && p.getExitTime() == null)
+                .toList();
+        if (igLinked.isEmpty()) return;
+
+        Optional<Set<String>> igDealIdsOpt = igTradingService.fetchOpenIgDealIds();
+        if (igDealIdsOpt.isEmpty()) {
+            log.debug("IG unavailable for reconciliation \u2014 skipping");
+            return;
+        }
+
+        Set<String> igDealIds = igDealIdsOpt.get();
+        for (PositionOutcome pos : igLinked) {
+            if (!igDealIds.contains(pos.getIgDealId())) {
+                log.warn("Position {} ({}) igDealId={} not found in IG \u2014 marking closed (reconciliation)",
+                        pos.getId(), pos.getSymbol(), pos.getIgDealId());
+                BigDecimal exitPrice = priceHistoryService.getLatestPrice(pos.getSymbol());
+                if (exitPrice == null) exitPrice = pos.getEntryPrice();
+                closePosition(pos, exitPrice, Instant.now(), false, false);
+            }
+        }
+    }
+
+    private static String displayName(String symbol) {
+        if (symbol.endsWith("USDT")) return symbol.substring(0, symbol.length() - 4);
+        if (symbol.endsWith("USD")) return symbol.substring(0, symbol.length() - 3);
+        return symbol;
     }
 
     void checkAndClosePosition(PositionOutcome pos, Instant now) {

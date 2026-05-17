@@ -48,6 +48,12 @@ class PositionOutcomeServiceTest {
     @Mock
     private FilterEventCounterService filterEventCounterService;
 
+    @Mock
+    private IGTradingService igTradingService;
+
+    @Mock
+    private TelegramNotificationService telegramNotificationService;
+
     @InjectMocks
     private PositionOutcomeService service;
 
