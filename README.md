@@ -16,7 +16,10 @@ A production-grade Spring Boot service that monitors financial instruments for m
 - ✅ DeepSeek AI signal enrichment (optional — adds market context to Telegram alerts)
 - ✅ Signal CSV archival with outcome backfill
 - ✅ Auto P&L tracking — positions opened on signal, TP/SL checked hourly, daily markdown report
-- ✅ REST API for instruments, signals, settings, positions, retrospective analysis
+- ✅ **IG auto-execution with Telegram inline-keyboard confirmation** — trade only after manual approve/skip
+- ✅ **Ratcheting trailing stop loss** — locks in profit as price moves favourably, never moves against you
+- ✅ **IG position reconciliation** — detects manual closes, keeps DB in sync with live IG positions
+- ✅ REST API for instruments, signals, settings, positions, retrospective analysis, trade testing
 
 ## Deployment
 
@@ -47,6 +50,18 @@ Key settings for notifications:
 TELEGRAM_ENABLED=true
 TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
 TELEGRAM_CHAT_IDS=your_chat_id          # comma-separate for multiple recipients
+```
+
+Key settings for IG auto-trading (optional):
+```bash
+IG_ENABLED=true
+IG_API_KEY=your_ig_api_key
+IG_USERNAME=your_ig_username
+IG_PASSWORD=your_ig_password
+IG_BASE_URL=https://demo-api.ig.com/gateway/deal  # or live-api.ig.com for real money
+TRADING_AUTO_EXECUTION_ENABLED=false  # set true to enable live trading (starts with confirmation)
+TRADING_REQUIRE_MANUAL_APPROVAL=true   # Telegram inline keyboard confirm/skip
+TELEGRAM_CONFIRMATION_TIMEOUT_SECONDS=120  # how long to wait for your response
 ```
 
 ### 3. Run with Docker Compose
@@ -86,12 +101,14 @@ Full reference: **[docs/api.md](docs/api.md)**
 Key endpoints:
 
 ```bash
-GET  /api/instruments/enabled          # Active instruments
-GET  /api/signals/recent?hours=24      # Recent signals
-GET  /api/signals/rsi-snapshot          # Live RSI values
-POST /api/signals/no-trade-mode/on     # Suppress PARTIAL/WATCH
-POST /api/trading/kill-switch/activate  # Emergency stop
-POST /api/test/notify                   # Fire test notification
+GET  /api/instruments/enabled               # Active instruments
+GET  /api/signals/recent?hours=24           # Recent signals
+GET  /api/signals/rsi-snapshot               # Live RSI values
+POST /api/signals/no-trade-mode/on          # Suppress PARTIAL/WATCH
+POST /api/trading/kill-switch/activate      # Emergency stop
+POST /api/trading/test-telegram             # Send test Telegram notification
+POST /api/trading/test-confirm?symbol=X&direction=BUY&price=100  # Test confirmation keyboard
+POST /api/test/notify                        # Fire test notification
 ```
 
 ## Pre-Configured Instruments
@@ -145,7 +162,7 @@ IG Daily Funded Bets (DFB) accrue **overnight financing charges every calendar d
 - Daily Financing Adjustment: ~€0.38/day
 - **Total: ~€0.50–0.55/day per standard position**
 
-> **Target in-and-out within 1–4 days.** If a trade hasn't moved in your favour within 3–4 days, the carry cost alone is a valid reason to close — regardless of RSI. A week's hold costs ~€3.50+ before spread is considered.
+> **Target in-and-out within hours to 2 days.** Positions auto-close after **16 hours** if still open — this frees capital for the next signal and limits financing drag. If a trade hasn't moved in your favour within a day, the carry cost (~€0.50/day) and opportunity cost of a blocked slot are valid reasons to close regardless of RSI.
 
 ## Troubleshooting
 
@@ -191,6 +208,22 @@ Measures momentum speed using two EMAs: fast (EMA12) and slow (EMA26). The gap b
 Used as a second gate for BUY DIP: if the histogram is negative *and* falling, entry is blocked.
 
 A third optional gate checks for **MACD divergence**: when price makes a lower low but the MACD line makes a higher low, hidden upward momentum is present — this *confirms* the entry. If divergence is absent *and* the histogram is also weak (positive but not rising, or vice versa), entry is blocked. If the histogram is clearly bullish (positive *and* rising), entry passes regardless of divergence — to avoid over-tightening. Divergence is currently **OFF** (`macd-divergence-enabled: false`) — monitoring suppression counts for 1 week before enabling. All data fetches are bounded (37 candles for histogram, 46 for divergence — no unbounded DB queries). Uses 12/26/9 (Appel, 1979).
+
+## Previously Removed Features
+
+The following were built, monitored for weeks, then removed (see `docs/project-log.md#2026-04-25`):
+
+| Feature | Reason removed |
+|---|---|
+| Polymarket odds monitoring | Odds shifts never preceded price moves |
+| Volume anomaly detection (σ-based) | Spikes never correlated with signal quality |
+| Cross-correlation burst alerts | 60s window almost never clustered meaningfully |
+
+**Future directions being considered:**
+- **AI news integration** (Perplexity API with web search) — could answer "why is SOL down today?" in real time. Challenge: latency 1–3s, cost ~$5/month, benefit unproven vs pure technical signals.
+- **Re-enable Polymarket** — only if political event odds show leading predictive power in a 30-day backtest.
+
+Re-introduction of any removed feature requires **concrete evidence** it would behave differently this time.
 
 ---
 
