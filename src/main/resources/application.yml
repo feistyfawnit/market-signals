@@ -92,7 +92,7 @@ rsi:
     # Set enabled=false to disable; threshold=0 also effectively disables.
     adx-filter-enabled: ${TREND_ADX_FILTER_ENABLED:true}
     adx-period: ${TREND_ADX_PERIOD:14}
-    adx-threshold: ${TREND_ADX_THRESHOLD:20.0}
+    adx-threshold: ${TREND_ADX_THRESHOLD:15.0}     # lowered 20→15 May 2026 — ADX oscillates around 20 in trend; 15 lets mildly-trending markets through
     # MACD histogram confirmation for TREND_BUY_DIP (Appel 1979).
     # Blocks entry when histogram is not bullish AND not rising on the trend timeframe.
     # Set enabled=false to disable; fast/slow/signal periods mirror the classic 12/26/9.
@@ -102,7 +102,7 @@ rsi:
     macd-signal-period: ${TREND_MACD_SIGNAL_PERIOD:9}
     # Crypto volume confirmation for TREND_BUY_DIP — high volume validates pullbacks per LuxAlgo / r/algotrading.
     # IG CFD volume is unreliable; filter only applies to CRYPTO instruments.
-    crypto-volume-filter-enabled: ${TREND_CRYPTO_VOLUME_FILTER_ENABLED:true}
+    crypto-volume-filter-enabled: ${TREND_CRYPTO_VOLUME_FILTER_ENABLED:false}  # disabled May 2026 — was blocking valid pullbacks; re-enable if noise increases
     crypto-volume-multiplier: ${TREND_CRYPTO_VOLUME_MULTIPLIER:1.2}
     crypto-volume-lookback: ${TREND_CRYPTO_VOLUME_LOOKBACK:20}
     # MACD divergence gate for TREND_BUY_DIP (deployed OFF — monitor via filter_event_counts for 1 week before enabling).
