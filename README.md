@@ -211,19 +211,11 @@ A third optional gate checks for **MACD divergence**: when price makes a lower l
 
 ## Previously Removed Features
 
-The following were built, monitored for weeks, then removed (see `docs/project-log.md#2026-04-25`):
-
-| Feature | Reason removed |
-|---|---|
-| Polymarket odds monitoring | Odds shifts never preceded price moves |
-| Volume anomaly detection (σ-based) | Spikes never correlated with signal quality |
-| Cross-correlation burst alerts | 60s window almost never clustered meaningfully |
+Several features were built, monitored, then removed as dead weight — see `AGENTS.md` for the summary and `docs/project-log.md#2026-04-25` for full incident history. Key lesson: **re-introduction requires concrete evidence** the feature would behave differently this time.
 
 **Future directions being considered:**
 - **AI news integration** (Perplexity API with web search) — could answer "why is SOL down today?" in real time. Challenge: latency 1–3s, cost ~$5/month, benefit unproven vs pure technical signals.
 - **Re-enable Polymarket** — only if political event odds show leading predictive power in a 30-day backtest.
-
-Re-introduction of any removed feature requires **concrete evidence** it would behave differently this time.
 
 ---
 
