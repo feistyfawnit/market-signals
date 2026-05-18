@@ -82,7 +82,7 @@ rsi:
     # because "fast-TF RSI < 60" fires at mere neutral (RSI ~55) — entries land at the
     # top of micro-pullbacks, not real dip bottoms. 45 targets the Investopedia-cited
     # "deep pullback in uptrend" zone. Revisit after 20+ trades.
-    dip-rsi-threshold: ${TREND_DIP_RSI_THRESHOLD:45}
+    dip-rsi-threshold: ${TREND_DIP_RSI_THRESHOLD:50}     # bumped 45→50 May 2026 — signals too sparse; 45 was too deep a pullback requirement
     rally-rsi-threshold: ${TREND_RALLY_RSI_THRESHOLD:55}
     trend-timeout-hours: ${TREND_TIMEOUT_HOURS:12}
     suppress-counter-trend: ${TREND_SUPPRESS_COUNTER:true}
@@ -118,8 +118,8 @@ rsi:
   volatility:
     atr-period: ${VOLATILITY_ATR_PERIOD:14}
     atr-lookback: ${VOLATILITY_ATR_LOOKBACK:20}
-    expansion-threshold: ${VOLATILITY_EXPANSION_THRESHOLD:1.5}
-    min-instruments: ${VOLATILITY_MIN_INSTRUMENTS:2}
+    expansion-threshold: ${VOLATILITY_EXPANSION_THRESHOLD:2.0}  # raised 1.5→2.0 May 2026 — was blocking SOL signals (HIGH_VOLATILITY 9× in 2 days)
+    min-instruments: ${VOLATILITY_MIN_INSTRUMENTS:3}           # raised 2→3 — require broader market expansion before suppressing
 
   timeframes:
     - 1m
