@@ -19,6 +19,8 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -63,6 +65,15 @@ public class PositionOutcomeService {
     @Value("${rsi.signal.cooldown-hours:1}")
     private int signalCooldownHours;
 
+    @Value("${rsi.quiet-hours.enabled:true}")
+    private boolean quietHoursEnabled;
+
+    @Value("${rsi.quiet-hours.start-hour:22}")
+    private int quietHoursStart;
+
+    @Value("${rsi.quiet-hours.end-hour:8}")
+    private int quietHoursEnd;
+
     @Value("${rsi.demo.atr-stops-enabled:true}")
     private boolean atrStopsEnabled;
 
@@ -85,11 +96,26 @@ public class PositionOutcomeService {
     @Value("${rsi.demo.trend-rr-commodity:3.0}")
     private double trendRrCommodity;
 
+    private boolean isQuietHours() {
+        if (!quietHoursEnabled) return false;
+        int h = ZonedDateTime.now(ZoneOffset.UTC).getHour();
+        return quietHoursStart > quietHoursEnd
+                ? h >= quietHoursStart || h < quietHoursEnd
+                : h >= quietHoursStart && h < quietHoursEnd;
+    }
+
     @EventListener
     @Async
     public void handleSignalEvent(SignalEvent event) {
         RsiSignal signal = event.getSignal();
         if (!TRACKED_SIGNALS.contains(signal.getSignalType())) return;
+
+        // Guard: skip during quiet hours — keeps position tracker in sync with Telegram suppression
+        if (isQuietHours()) {
+            log.debug("Quiet hours — skipping position open for {} {}", signal.getSymbol(), signal.getSignalType());
+            filterEventCounterService.record("QUIET_HOURS", signal.getSymbol());
+            return;
+        }
 
         // Guard: skip if open position exists or signal fired within cooldown window
         if (positionOutcomeRepository.existsBySymbolAndExitTimeIsNull(signal.getSymbol())) {

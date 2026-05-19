@@ -15,6 +15,7 @@ import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.Map;
@@ -180,6 +181,11 @@ public class NotificationService {
     
     private String buildNotificationMessage(RsiSignal signal, String aiContext, String deepSeekContext) {
         StringBuilder message = new StringBuilder();
+
+        // Signal timestamp (BST = UTC+1 in summer)
+        String signalTime = ZonedDateTime.now(ZoneId.of("Europe/Dublin"))
+                .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
+        message.append("<i>Signal at ").append(signalTime).append(" (Dublin)</i>\n");
 
         // Price (bold for emphasis)
         message.append("Price: <b>").append(formatPrice(signal.getCurrentPrice(), signal.getSymbol())).append("</b>\n");
