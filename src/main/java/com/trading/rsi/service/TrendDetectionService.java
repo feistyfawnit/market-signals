@@ -55,6 +55,7 @@ public class TrendDetectionService {
     private final PriceHistoryService priceHistoryService;
     private final AdxCalculator adxCalculator;
     private final MacdCalculator macdCalculator;
+    private final AtrCalculator atrCalculator;
     private final FilterEventCounterService filterEventCounterService;
     private final CandleHistoryRepository candleHistoryRepository;
 
@@ -105,6 +106,39 @@ public class TrendDetectionService {
 
     @Value("${rsi.trend.macd-divergence-enabled:false}")
     private boolean macdDivergenceEnabled;
+
+    // EMA slope filter — suppresses entries when the trend EMA is essentially flat (chop).
+    // Default ON with a very gentle threshold so consolidation ranges are filtered without
+    // killing real mild uptrends. See docs/project-log.md (May 2026 SOL chop review).
+    @Value("${rsi.trend.ema-slope-filter-enabled:true}")
+    private boolean emaSlopeFilterEnabled;
+
+    @Value("${rsi.trend.ema-slope-lookback:5}")
+    private int emaSlopeLookback;
+
+    @Value("${rsi.trend.ema-slope-min-pct:0.05}")
+    private double emaSlopeMinPct;
+
+    // ATR / price minimum — skips TREND_BUY_DIP when 1h ATR is too small relative to price
+    // (range-bound, low-vol market). Default OFF until calibrated against position_outcomes.
+    @Value("${rsi.trend.atr-min-pct-filter-enabled:false}")
+    private boolean atrMinPctFilterEnabled;
+
+    @Value("${rsi.trend.atr-min-pct:0.4}")
+    private double atrMinPct;
+
+    @Value("${rsi.trend.atr-min-pct-period:14}")
+    private int atrMinPctPeriod;
+
+    // Dedupe tightening — require the fast-TF RSI to recover meaningfully above the dip
+    // threshold (margin) before a second alert can fire at a similar price, and require a
+    // larger price move when RSI has not recovered. Both raised May 2026 after SOL fired 3×
+    // in 60h while range-bound between $85.15 and $86.14.
+    @Value("${rsi.trend.dip-recovery-margin:5.0}")
+    private double dipRecoveryMargin;
+
+    @Value("${rsi.trend.dip-min-pct-move:0.5}")
+    private double dipMinPctMove;
 
     @Value("${rsi.trend.crypto-volume-filter-enabled:true}")
     private boolean cryptoVolumeFilterEnabled;
@@ -327,6 +361,38 @@ public class TrendDetectionService {
             }
         }
 
+        // EMA slope filter: the EMA / price >  EMA gate alone is too permissive in chop, because
+        // price oscillating in a tight band still sits above a slow EMA. Requiring the EMA itself
+        // to be sloping (up for uptrend, down for downtrend) eliminates flat consolidation ranges.
+        // Optional.NaN (warmup) is pass-through.
+        if (emaSlopeFilterEnabled && emaSlopeMinPct > 0) {
+            double slope = getEmaSlopePct(instrument.getSymbol());
+            if (!Double.isNaN(slope)) {
+                boolean uptrendFlat   = trend == TrendState.STRONG_UPTREND   && slope <  emaSlopeMinPct;
+                boolean downtrendFlat = trend == TrendState.STRONG_DOWNTREND && slope > -emaSlopeMinPct;
+                if (uptrendFlat || downtrendFlat) {
+                    log.info("Trend entry suppressed for {} — EMA{}({}) slope {}% over {} candles below ±{}% (flat/chop)",
+                            instrument.getSymbol(), emaPeriod, emaTrendTimeframe,
+                            String.format("%.3f", slope), emaSlopeLookback, emaSlopeMinPct);
+                    filterEventCounterService.record("EMA_SLOPE_FLAT", instrument.getSymbol());
+                    return;
+                }
+            }
+        }
+
+        // ATR / price minimum: skip TREND_BUY_DIP when 1h ATR is too small relative to price
+        // (e.g. SOL drifting in a $1 band). NaN (warmup) is pass-through.
+        if (atrMinPctFilterEnabled && atrMinPct > 0) {
+            double atrPct = getAtrPctOfPrice(instrument.getSymbol(), currentPrice);
+            if (!Double.isNaN(atrPct) && atrPct < atrMinPct) {
+                log.info("Trend entry suppressed for {} — {} ATR({}) {}% of price below {}% (range-bound)",
+                        instrument.getSymbol(), emaTrendTimeframe, atrMinPctPeriod,
+                        String.format("%.3f", atrPct), atrMinPct);
+                filterEventCounterService.record("ATR_RANGE_BOUND", instrument.getSymbol());
+                return;
+            }
+        }
+
         // MACD histogram confirmation for TREND_BUY_DIP (Appel 1979).
         // Only applies to the uptrend path; Optional.empty() is warmup-friendly and does not block.
         if (macdFilterEnabled && trend == TrendState.STRONG_UPTREND) {
@@ -370,23 +436,26 @@ public class TrendDetectionService {
         if (fastestRsi == null) return;
         double fastRsi = fastestRsi.doubleValue();
 
-        // Track RSI recovery for TREND_BUY_DIP dedupe
-        if (fastRsi >= dipRsiThreshold) {
+        // Track RSI recovery for TREND_BUY_DIP dedupe — require a margin above the dip threshold
+        // so that brushing the threshold (e.g. RSI 48 vs 50) does not count as a real bounce.
+        if (fastRsi >= dipRsiThreshold + dipRecoveryMargin) {
             dipRsiRecovered.put(instrument.getSymbol(), true);
         }
 
         if (trend == TrendState.STRONG_UPTREND) {
             // Fastest TF RSI pulled back below threshold while price remains in uptrend
             if (fastRsi < dipRsiThreshold && fastRsi > 30) {
-                // Dedupe: require price move >0.3% or RSI recovery above threshold
+                // Dedupe: require a meaningful price move OR a confirmed RSI recovery (threshold + margin)
                 BigDecimal lastDipPrice = lastDipAlertPrice.get(instrument.getSymbol());
                 boolean recovered = dipRsiRecovered.getOrDefault(instrument.getSymbol(), true);
                 if (lastDipPrice != null && !recovered) {
                     double pctMove = Math.abs(currentPrice.subtract(lastDipPrice)
                             .divide(lastDipPrice, 8, RoundingMode.HALF_UP).doubleValue() * 100);
-                    if (pctMove < 0.3) {
-                        log.debug("TREND_BUY_DIP suppressed for {} — price {}% from last dip, RSI not recovered",
-                                instrument.getSymbol(), String.format("%.2f", pctMove));
+                    if (pctMove < dipMinPctMove) {
+                        log.info("TREND_BUY_DIP suppressed for {} — price {}% from last dip (need {}%), RSI not recovered (need ≥ {})",
+                                instrument.getSymbol(), String.format("%.2f", pctMove),
+                                dipMinPctMove, dipRsiThreshold + dipRecoveryMargin);
+                        filterEventCounterService.record("DIP_DEDUPE", instrument.getSymbol());
                         return;
                     }
                 }
@@ -457,6 +526,36 @@ public class TrendDetectionService {
                 }
             }
         }
+    }
+
+    /**
+     * Returns the % change of the EMA on the trend timeframe over the last {@code emaSlopeLookback}
+     * candles. Positive = EMA rising. Returns NaN if insufficient history.
+     */
+    private double getEmaSlopePct(String symbol) {
+        String key = priceHistoryService.buildKey(symbol, emaTrendTimeframe);
+        List<BigDecimal> history = priceHistoryService.getPriceHistory(key);
+        if (history == null || history.size() < emaPeriod + emaSlopeLookback) return Double.NaN;
+        BigDecimal emaNow = emaCalculator.calculate(history, emaPeriod);
+        BigDecimal emaPast = emaCalculator.calculate(
+                history.subList(0, history.size() - emaSlopeLookback), emaPeriod);
+        if (emaNow == null || emaPast == null || emaPast.signum() == 0) return Double.NaN;
+        double pct = emaNow.subtract(emaPast)
+                .divide(emaPast, 8, RoundingMode.HALF_UP).doubleValue() * 100;
+        log.debug("EMA{} slope ({}) for {}: {}% over {} candles",
+                emaPeriod, emaTrendTimeframe, symbol,
+                String.format("%.3f", pct), emaSlopeLookback);
+        return pct;
+    }
+
+    /**
+     * Returns 1h ATR as a percentage of current price. NaN if ATR or price unavailable.
+     */
+    private double getAtrPctOfPrice(String symbol, BigDecimal currentPrice) {
+        if (currentPrice == null || currentPrice.signum() == 0) return Double.NaN;
+        Optional<BigDecimal> atr = atrCalculator.computeAtr(symbol, emaTrendTimeframe, atrMinPctPeriod);
+        if (atr.isEmpty()) return Double.NaN;
+        return atr.get().divide(currentPrice, 8, RoundingMode.HALF_UP).doubleValue() * 100;
     }
 
     /**

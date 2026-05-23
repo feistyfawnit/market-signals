@@ -6,6 +6,70 @@
 
 ---
 
+## 2026-05-22 — SOL chop review: trailing-stop guidance + chop filters + dedupe tightening
+
+### Trigger
+
+Three SOL `TREND_BUY_DIP` alerts fired within 60 hours (19/05 09:21, 20/05 19:53, 21/05 17:51) at near-identical prices ($85.15 → $85.71 → $86.14, ~$1 range) while the instrument was clearly consolidating. User reports manual trailing stops (kept tight, ~1pt below current) outperformed the bot's static `Stop 2pt / Limit 6pt` plan — none of the configured `+6pt` limits were ever hit in `signal-outcomes-live.csv` (13 SOL TREND_BUY_DIP trades, 0 TP, mix of −2.3% stops and small 24h auto-close profits).
+
+### What changed
+
+**A. Trailing-stop guidance in Telegram message** — `NotificationService.buildDemoGuidance`
+- Appends a `🪜 Trail: at +<X>pt → stop to entry; then trail <X>pt below new highs/lows` line to every actionable signal (full OS/OB and trend). Suppressed for partial/watch.
+- `X = max(1, stopPts/2)`. For SOL (stop=2pt) that's `+1pt → BE; then trail 1pt below new highs` — exactly the manual rule the user had been using.
+- Direction-aware: LONG references "new highs", SHORT references "new lows".
+
+**B.1. EMA slope filter** (`TREND_EMA_SLOPE_FILTER_ENABLED=true`, default ON)
+- Price-above-EMA alone is too permissive in chop because a flat EMA can still sit slightly below a range-bound price.
+- New gate computes `(EMA_now − EMA_{lookback back}) / EMA_{lookback back}` and requires `|slope| ≥ emaSlopeMinPct`.
+- Defaults: `lookback=5`, `min-pct=0.05`. Very gentle — only true flat-chop is filtered. Tracked in `filter_event_counts` as `EMA_SLOPE_FLAT`.
+
+**B.2. ATR / price minimum** (`TREND_ATR_MIN_PCT_FILTER_ENABLED=false`, default OFF)
+- Optional gate that suppresses `TREND_BUY_DIP` when `1h ATR(14) / price < atrMinPct` (range-bound).
+- Default OFF — needs calibration against `position_outcomes` before enabling.
+- Suggested starter: 0.4% for crypto (would have blocked SOL at $85 with $0.17 ATR = 0.20%).
+- Tracked as `ATR_RANGE_BOUND` when fired.
+
+**B.3. Dedupe tightening** (defaults updated)
+- `dipRsiRecovered` now requires `fastRsi ≥ dipRsiThreshold + dipRecoveryMargin` (default margin=5). Previously a brush at RSI=48 vs threshold=45 flipped recovered=true and re-opened the dedupe gate.
+- `pctMove` floor raised 0.3% → 0.5%. SOL's $85.15→$85.71 (0.66%) would still fire if RSI had recovered, but $85.71→$86.14 (0.50%) is now right at the boundary.
+- Suppression now logged at INFO (was DEBUG) and counted in `filter_event_counts` as `DIP_DEDUPE`.
+
+### Config keys added
+
+```yaml
+rsi.trend.ema-slope-filter-enabled  # TREND_EMA_SLOPE_FILTER_ENABLED, default true
+rsi.trend.ema-slope-lookback         # TREND_EMA_SLOPE_LOOKBACK, default 5
+rsi.trend.ema-slope-min-pct          # TREND_EMA_SLOPE_MIN_PCT, default 0.05
+rsi.trend.atr-min-pct-filter-enabled # TREND_ATR_MIN_PCT_FILTER_ENABLED, default false
+rsi.trend.atr-min-pct                # TREND_ATR_MIN_PCT, default 0.4
+rsi.trend.atr-min-pct-period         # TREND_ATR_MIN_PCT_PERIOD, default 14
+rsi.trend.dip-recovery-margin        # TREND_DIP_RECOVERY_MARGIN, default 5.0
+rsi.trend.dip-min-pct-move           # TREND_DIP_MIN_PCT_MOVE, default 0.5
+```
+
+### Tests
+
+`TrendDetectionServiceTest`: existing scenarios updated for new defaults (recovery RSI 48→52 to clear margin). Added `dipDedupe_rsiBrushesThresholdOnly_secondStillSuppressed`, `emaSlopeFilter_flatEma_suppressesDip`, `emaSlopeFilter_risingEma_allowsDip`, `atrMinPctFilter_lowAtr_suppressesDip`, `atrMinPctFilter_healthyAtr_allowsDip`.
+
+`NotificationServiceTest`: added `buildDemoGuidance_trendBuyDip_includesTrailingStopLine`, `buildDemoGuidance_fullOverbought_trailingMentionsLows`, `buildDemoGuidance_partialSignal_noTrailingLine`.
+
+Full suite: 110 tests, 0 failures.
+
+### Monitoring
+
+After 1 week of forward data, check `filter_event_counts` for:
+- `EMA_SLOPE_FLAT` count vs `TREND_BUY_DIP` fires per symbol. If >50% suppression on a trending instrument → loosen `ema-slope-min-pct` toward 0.03%.
+- `DIP_DEDUPE` count — should be non-zero on SOL specifically given the May 19–21 pattern.
+- `ATR_RANGE_BOUND` would log 0 by default (filter off). Enable via `TREND_ATR_MIN_PCT_FILTER_ENABLED=true` after reviewing position_outcomes for 2+ weeks.
+
+### Not done (explicitly deferred)
+
+- **Advisor-mode auto-trail Telegram updates** — would require running the trail-stop math on non-IG positions and pushing notifications on each stop move. Useful but generates more message noise; defer until the text guidance proves insufficient.
+- **Crypto R:R drop 3:1 → 2:1** — data supports this (0/13 TP hits on SOL) but it's a meaningful behavioural change; leaving for explicit user decision.
+
+---
+
 ## 2026-05-17 — IGTradingService fixes; Phase 4 trailing stop design
 
 ### Fixes

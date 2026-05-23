@@ -103,6 +103,70 @@ class NotificationServiceTest {
     }
 
     @Test
+    void buildDemoGuidance_trendBuyDip_includesTrailingStopLine() throws Exception {
+        RsiSignal signal = RsiSignal.builder()
+                .symbol("SOLUSDT")
+                .instrumentName("Solana")
+                .signalType(SignalLog.SignalType.TREND_BUY_DIP)
+                .currentPrice(new BigDecimal("88.00"))
+                .rsiValues(Map.of("15m", new BigDecimal("55")))
+                .timeframesAligned(2)
+                .totalTimeframes(3)
+                .signalStrength(new BigDecimal("5.0"))
+                .build();
+
+        String result = invokeBuildDemoGuidance(signal);
+
+        // Trailing-stop guidance: at +1pt (stop/2) move stop to entry, then trail 1pt below new highs.
+        assertTrue(result.contains("Trail:"),
+                "Actionable trend signal must include trailing-stop guidance line. Got: " + result);
+        assertTrue(result.contains("at +1pt"),
+                "Trail trigger should be +1pt (half of 2pt stop) for SOL. Got: " + result);
+        assertTrue(result.contains("trail 1pt below new highs"),
+                "Trail step should be 1pt below new highs for LONG. Got: " + result);
+    }
+
+    @Test
+    void buildDemoGuidance_fullOverbought_trailingMentionsLows() throws Exception {
+        RsiSignal signal = RsiSignal.builder()
+                .symbol("SOLUSDT")
+                .instrumentName("Solana")
+                .signalType(SignalLog.SignalType.OVERBOUGHT)
+                .currentPrice(new BigDecimal("88.00"))
+                .rsiValues(Map.of("15m", new BigDecimal("75")))
+                .timeframesAligned(3)
+                .totalTimeframes(3)
+                .signalStrength(new BigDecimal("5.0"))
+                .build();
+
+        String result = invokeBuildDemoGuidance(signal);
+
+        assertTrue(result.contains("Trail:"),
+                "Actionable SHORT signal must include trailing-stop guidance line. Got: " + result);
+        assertTrue(result.contains("trail 1pt below new lows"),
+                "Trail step on SHORT should reference new lows. Got: " + result);
+    }
+
+    @Test
+    void buildDemoGuidance_partialSignal_noTrailingLine() throws Exception {
+        RsiSignal signal = RsiSignal.builder()
+                .symbol("SOLUSDT")
+                .instrumentName("Solana")
+                .signalType(SignalLog.SignalType.PARTIAL_OVERSOLD)
+                .currentPrice(new BigDecimal("88.00"))
+                .rsiValues(Map.of("15m", new BigDecimal("25")))
+                .timeframesAligned(2)
+                .totalTimeframes(3)
+                .signalStrength(new BigDecimal("5.0"))
+                .build();
+
+        String result = invokeBuildDemoGuidance(signal);
+
+        assertFalse(result.contains("Trail:"),
+                "Partial signal must NOT include trailing-stop guidance. Got: " + result);
+    }
+
+    @Test
     void buildDemoGuidance_higherPrice_computedStopExceedsFloor() throws Exception {
         // BTC at $65,000: computed stop = round(65000 * 1.0 / 100) = 650pt (trend halved)
         // Floor: max(round(65000 * 0.002), 2) = max(130, 2) = 130pt

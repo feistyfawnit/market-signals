@@ -52,6 +52,15 @@ class TrendDetectionServiceTest {
     @Mock
     private FilterEventCounterService filterEventCounterService;
 
+    @Mock
+    private AdxCalculator adxCalculator;
+
+    @Mock
+    private MacdCalculator macdCalculator;
+
+    @Mock
+    private AtrCalculator atrCalculator;
+
     @InjectMocks
     private TrendDetectionService trendDetectionService;
 
@@ -71,6 +80,16 @@ class TrendDetectionServiceTest {
         ReflectionTestUtils.setField(trendDetectionService, "cryptoVolumeFilterEnabled", true);
         ReflectionTestUtils.setField(trendDetectionService, "cryptoVolumeMultiplier", 1.2);
         ReflectionTestUtils.setField(trendDetectionService, "cryptoVolumeLookback", 20);
+        // May 2026 filters — default off in tests so existing scenarios stay focused
+        ReflectionTestUtils.setField(trendDetectionService, "emaSlopeFilterEnabled", false);
+        ReflectionTestUtils.setField(trendDetectionService, "emaSlopeLookback", 5);
+        ReflectionTestUtils.setField(trendDetectionService, "emaSlopeMinPct", 0.05);
+        ReflectionTestUtils.setField(trendDetectionService, "atrMinPctFilterEnabled", false);
+        ReflectionTestUtils.setField(trendDetectionService, "atrMinPct", 0.4);
+        ReflectionTestUtils.setField(trendDetectionService, "atrMinPctPeriod", 14);
+        // Dedupe tightening (defaults match application.yml)
+        ReflectionTestUtils.setField(trendDetectionService, "dipRecoveryMargin", 5.0);
+        ReflectionTestUtils.setField(trendDetectionService, "dipMinPctMove", 0.5);
 
         instrument = Instrument.builder()
                 .symbol("SOLUSDT")
@@ -115,7 +134,7 @@ class TrendDetectionServiceTest {
                 .thenReturn(true);
 
         BigDecimal price1 = new BigDecimal("88.00");
-        BigDecimal price2 = new BigDecimal("88.10"); // 0.11% move — below 0.3% threshold
+        BigDecimal price2 = new BigDecimal("88.10"); // 0.11% move — below 0.5% threshold
 
         // RSI at 55 → above dipRsiThreshold (45) → does NOT trigger dip. Use 42 for dip trigger.
         Map<String, BigDecimal> dipRsi = Map.of(
@@ -154,14 +173,15 @@ class TrendDetectionServiceTest {
         trendDetectionService.checkForTrendEntry(instrument, dipRsi, price1, triggerCandle);
         verify(eventPublisher, times(1)).publishEvent(any(SignalEvent.class));
 
-        // RSI recovers above threshold (poll cycle with RSI >= 45)
+        // RSI must recover to threshold + margin (45 + 5 = 50) to count as a real bounce.
+        // RSI=52 clears that bar.
         Map<String, BigDecimal> recoveredRsi = Map.of(
-                "15m", new BigDecimal("48"),
+                "15m", new BigDecimal("52"),
                 "1h", new BigDecimal("68"),
                 "4h", new BigDecimal("74")
         );
         trendDetectionService.checkForTrendEntry(instrument, recoveredRsi, price2, triggerCandle);
-        // RSI=48 >= 45 → sets dipRsiRecovered=true; RSI not < 45, so no new dip signal
+        // RSI=52 >= 50 → sets dipRsiRecovered=true; RSI not < 45, so no new dip signal
 
         // Second dip after recovery → should fire
         trendDetectionService.checkForTrendEntry(instrument, dipRsi, price2, triggerCandle);
@@ -177,7 +197,7 @@ class TrendDetectionServiceTest {
                 .thenReturn(true);
 
         BigDecimal price1 = new BigDecimal("88.00");
-        BigDecimal price2 = new BigDecimal("88.50"); // 0.57% move — above 0.3% threshold
+        BigDecimal price2 = new BigDecimal("88.50"); // 0.57% move — above 0.5% threshold
 
         Map<String, BigDecimal> dipRsi = Map.of(
                 "15m", new BigDecimal("42"),
@@ -300,6 +320,150 @@ class TrendDetectionServiceTest {
         );
 
         trendDetectionService.checkForTrendEntry(index, dipRsi, new BigDecimal("18000.00"), triggerCandle);
+        verify(eventPublisher, times(1)).publishEvent(any(SignalEvent.class));
+    }
+
+    // ── RSI-brush-only no longer counts as recovery (May 2026 dedupe tightening) ──
+
+    @Test
+    void dipDedupe_rsiBrushesThresholdOnly_secondStillSuppressed() {
+        stubUptrend();
+        when(cooldownService.shouldAlert(eq("SOLUSDT"), eq(SignalLog.SignalType.TREND_BUY_DIP)))
+                .thenReturn(true);
+
+        BigDecimal price1 = new BigDecimal("88.00");
+        BigDecimal price2 = new BigDecimal("88.10"); // 0.11% move
+
+        Map<String, BigDecimal> dipRsi = Map.of(
+                "15m", new BigDecimal("42"),
+                "1h", new BigDecimal("65"),
+                "4h", new BigDecimal("72")
+        );
+
+        // First dip → fires
+        trendDetectionService.checkForTrendEntry(instrument, dipRsi, price1, triggerCandle);
+        verify(eventPublisher, times(1)).publishEvent(any(SignalEvent.class));
+
+        // RSI brushes the threshold (47) but not the threshold + margin (50). Pre-May-2026 this
+        // flipped dipRsiRecovered = true and would allow a second alert. Post-tightening it should
+        // NOT count as a recovery.
+        Map<String, BigDecimal> brushRsi = Map.of(
+                "15m", new BigDecimal("47"),
+                "1h", new BigDecimal("68"),
+                "4h", new BigDecimal("74")
+        );
+        trendDetectionService.checkForTrendEntry(instrument, brushRsi, price2, triggerCandle);
+        // No new event — RSI not below threshold here, so no dip signal either way
+        verify(eventPublisher, times(1)).publishEvent(any(SignalEvent.class));
+
+        // Now back into dip territory at similar price — should be SUPPRESSED because
+        // recovery never actually happened.
+        trendDetectionService.checkForTrendEntry(instrument, dipRsi, price2, triggerCandle);
+        verify(eventPublisher, times(1)).publishEvent(any(SignalEvent.class));
+    }
+
+    // ── EMA slope filter (B.1) ──
+
+    @Test
+    void emaSlopeFilter_flatEma_suppressesDip() {
+        ReflectionTestUtils.setField(trendDetectionService, "emaSlopeFilterEnabled", true);
+        ReflectionTestUtils.setField(trendDetectionService, "emaSlopeMinPct", 0.05);
+
+        // Uptrend via price slightly > EMA (passes 0.1% hysteresis), but EMA itself is flat.
+        List<BigDecimal> history = new java.util.ArrayList<>(IntStream.range(0, 30)
+                .mapToObj(i -> BigDecimal.valueOf(85.0))
+                .toList());
+        history.set(history.size() - 1, new BigDecimal("85.30")); // current price 0.35% above flat EMA
+        when(priceHistoryService.buildKey("SOLUSDT", "1h")).thenReturn("SOLUSDT:1h");
+        when(priceHistoryService.getPriceHistory("SOLUSDT:1h")).thenReturn(history);
+        // EMA at end and 5 candles back are both 85.00 → slope 0% < 0.05% threshold
+        when(emaCalculator.calculate(history, 20)).thenReturn(new BigDecimal("85.00"));
+        when(emaCalculator.calculate(history.subList(0, history.size() - 5), 20))
+                .thenReturn(new BigDecimal("85.00"));
+
+        Map<String, BigDecimal> dipRsi = Map.of(
+                "15m", new BigDecimal("42"),
+                "1h", new BigDecimal("65"),
+                "4h", new BigDecimal("72")
+        );
+
+        trendDetectionService.checkForTrendEntry(instrument, dipRsi, new BigDecimal("85.30"), triggerCandle);
+
+        verify(eventPublisher, never()).publishEvent(any(SignalEvent.class));
+        verify(filterEventCounterService).record(eq("EMA_SLOPE_FLAT"), eq("SOLUSDT"));
+    }
+
+    @Test
+    void emaSlopeFilter_risingEma_allowsDip() {
+        ReflectionTestUtils.setField(trendDetectionService, "emaSlopeFilterEnabled", true);
+        ReflectionTestUtils.setField(trendDetectionService, "emaSlopeMinPct", 0.05);
+        when(cooldownService.shouldAlert(eq("SOLUSDT"), eq(SignalLog.SignalType.TREND_BUY_DIP)))
+                .thenReturn(true);
+
+        List<BigDecimal> history = IntStream.range(0, 30)
+                .mapToObj(i -> BigDecimal.valueOf(80 + i * 0.5))
+                .toList();
+        when(priceHistoryService.buildKey("SOLUSDT", "1h")).thenReturn("SOLUSDT:1h");
+        when(priceHistoryService.getPriceHistory("SOLUSDT:1h")).thenReturn(history);
+        when(emaCalculator.calculate(history, 20)).thenReturn(new BigDecimal("90.00"));
+        when(emaCalculator.calculate(history.subList(0, history.size() - 5), 20))
+                .thenReturn(new BigDecimal("88.00")); // EMA rose 2.27% — well above 0.05%
+
+        Map<String, BigDecimal> dipRsi = Map.of(
+                "15m", new BigDecimal("42"),
+                "1h", new BigDecimal("65"),
+                "4h", new BigDecimal("72")
+        );
+
+        trendDetectionService.checkForTrendEntry(instrument, dipRsi, new BigDecimal("94.50"), triggerCandle);
+
+        verify(eventPublisher, times(1)).publishEvent(any(SignalEvent.class));
+    }
+
+    // ── ATR / price filter (B.2) ──
+
+    @Test
+    void atrMinPctFilter_lowAtr_suppressesDip() {
+        ReflectionTestUtils.setField(trendDetectionService, "atrMinPctFilterEnabled", true);
+        ReflectionTestUtils.setField(trendDetectionService, "atrMinPct", 0.4);
+        stubUptrend();
+
+        // 0.20% ATR at $85 = $0.17 — below 0.4% threshold
+        when(atrCalculator.computeAtr("SOLUSDT", "1h", 14))
+                .thenReturn(java.util.Optional.of(new BigDecimal("0.17")));
+
+        Map<String, BigDecimal> dipRsi = Map.of(
+                "15m", new BigDecimal("42"),
+                "1h", new BigDecimal("65"),
+                "4h", new BigDecimal("72")
+        );
+
+        trendDetectionService.checkForTrendEntry(instrument, dipRsi, new BigDecimal("85.00"), triggerCandle);
+
+        verify(eventPublisher, never()).publishEvent(any(SignalEvent.class));
+        verify(filterEventCounterService).record(eq("ATR_RANGE_BOUND"), eq("SOLUSDT"));
+    }
+
+    @Test
+    void atrMinPctFilter_healthyAtr_allowsDip() {
+        ReflectionTestUtils.setField(trendDetectionService, "atrMinPctFilterEnabled", true);
+        ReflectionTestUtils.setField(trendDetectionService, "atrMinPct", 0.4);
+        stubUptrend();
+        when(cooldownService.shouldAlert(eq("SOLUSDT"), eq(SignalLog.SignalType.TREND_BUY_DIP)))
+                .thenReturn(true);
+
+        // 1.0% ATR at $85 = $0.85 — well above 0.4% threshold
+        when(atrCalculator.computeAtr("SOLUSDT", "1h", 14))
+                .thenReturn(java.util.Optional.of(new BigDecimal("0.85")));
+
+        Map<String, BigDecimal> dipRsi = Map.of(
+                "15m", new BigDecimal("42"),
+                "1h", new BigDecimal("65"),
+                "4h", new BigDecimal("72")
+        );
+
+        trendDetectionService.checkForTrendEntry(instrument, dipRsi, new BigDecimal("85.00"), triggerCandle);
+
         verify(eventPublisher, times(1)).publishEvent(any(SignalEvent.class));
     }
 

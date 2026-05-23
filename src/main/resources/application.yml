@@ -109,6 +109,25 @@ rsi:
     # Bullish divergence confirms entry; absence when histogram is weak blocks entry.
     # When histogram is clearly bullish (>0 AND rising), entry passes regardless.
     macd-divergence-enabled: ${TREND_MACD_DIVERGENCE_ENABLED:false}
+    # EMA slope filter — gates TREND_BUY_DIP / TREND_SELL_RALLY on the EMA itself trending,
+    # not just price > EMA. Price-above-EMA alone is too permissive in tight consolidation
+    # ranges (e.g. SOL Mar 19–21 2026 fired 3× while drifting in $85.15–$86.14 range).
+    # Slope is computed as (EMA_now − EMA_{n back}) / EMA_{n back}. Default ON, gentle 0.05%
+    # threshold so only true flat-chop is filtered.
+    ema-slope-filter-enabled: ${TREND_EMA_SLOPE_FILTER_ENABLED:true}
+    ema-slope-lookback: ${TREND_EMA_SLOPE_LOOKBACK:5}
+    ema-slope-min-pct: ${TREND_EMA_SLOPE_MIN_PCT:0.05}
+    # ATR / price minimum — blocks TREND_BUY_DIP when 1h ATR is too small relative to price
+    # (low-volatility range). Disabled by default — needs calibration against position_outcomes
+    # before enabling. 0.4% is a starting point for crypto; indices/commodities typically lower.
+    atr-min-pct-filter-enabled: ${TREND_ATR_MIN_PCT_FILTER_ENABLED:false}
+    atr-min-pct: ${TREND_ATR_MIN_PCT:0.4}
+    atr-min-pct-period: ${TREND_ATR_MIN_PCT_PERIOD:14}
+    # Dedupe tightening (May 2026) — second SOL alert within 60h at near-identical price
+    # was firing because dipRsiRecovered flipped true the moment 15m RSI brushed 50.
+    # Now requires recovery to threshold + margin AND a larger price move when not recovered.
+    dip-recovery-margin: ${TREND_DIP_RECOVERY_MARGIN:5.0}
+    dip-min-pct-move: ${TREND_DIP_MIN_PCT_MOVE:0.5}
 
   correlation:
     lookback-minutes: ${CORRELATION_LOOKBACK_MINUTES:15}

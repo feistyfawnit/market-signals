@@ -316,6 +316,22 @@ public class NotificationService {
               .append(" | Limit ").append(limitPts).append("pt (").append(rrLabel)
               .append(", ~").append(accountCurrency).append(profitAmt).append(")");
         }
+
+        // Manual trailing-stop guidance — for actionable (non-partial, non-watch) signals only.
+        // Trigger at half the stop distance in profit (move to break-even), then trail by the same
+        // amount under each new extreme. Mirrors the manual discipline that has outperformed the
+        // fixed Stop/Limit on SOL (May 2026 review).
+        boolean isWatch = signal.getSignalType() == SignalLog.SignalType.WATCH_OVERSOLD
+                || signal.getSignalType() == SignalLog.SignalType.WATCH_OVERBOUGHT;
+        if (!isPartial && !isWatch) {
+            long trailTriggerPts = Math.max(1, stopPts / 2);
+            long trailStepPts = Math.max(1, stopPts / 2);
+            String extreme = isLong ? "high" : "low";
+            sb.append("\n\uD83E\uDE9C Trail: at +").append(trailTriggerPts)
+              .append("pt \u2192 stop to entry; then trail ").append(trailStepPts)
+              .append("pt below new ").append(extreme).append("s");
+        }
+
         if (isCryptoSymbol(signal.getSymbol())) {
             sb.append("\n<i>[Binance price \u2014 adjust stops on IG entry accordingly]</i>");
         }
