@@ -1,6 +1,6 @@
 # LucidLynx Market Signals — API Reference
 
-*Last updated: April 2026*
+*Last updated: May 2026*
 
 Base URL: `http://localhost:8080`
 
@@ -73,13 +73,15 @@ Returns per-timeframe RSI values, distance from thresholds, and verdict (FULL / 
 
 ## Positions & P&L Tracking — `/api/positions`
 
-Tracks outcomes of actionable signals (OVERSOLD, OVERBOUGHT, TREND_BUY_DIP, TREND_SELL_RALLY). Positions are opened automatically on signal, checked hourly for TP/SL hits, and auto-closed after 24h.
+Tracks outcomes of actionable signals (OVERSOLD, OVERBOUGHT, TREND_BUY_DIP, TREND_SELL_RALLY). Positions are opened automatically on signal, checked hourly for TP/SL hits, and auto-closed after **16h** (lowered 24h→16h May 2026 — `PositionOutcomeService.MAX_HOLDING`).
 
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/positions/pnl-summary` | Win rate, avg P&L, expectancy by signal type (JSON) |
-| `GET` | `/api/positions/pnl-report` | Human-readable markdown report |
-| `POST` | `/api/positions/pnl-report/write` | Force-write report to `reports/pnl-report.md` |
+| `GET` | `/api/positions/pnl-report` | Human-readable plain-text report |
+| `GET` | `/api/positions/pnl-report/csv` | Same data as CSV |
+| `GET` | `/api/positions/signal-gaps` | Reports signals that fired but didn't open positions (e.g. cooldown/quiet-hours) |
+| `POST` | `/api/positions/recalculate` | Recompute P&L for closed positions (used after stop/exit logic changes) |
 
 The report auto-writes daily at 06:00 UTC to `reports/pnl-report.md` (host-mounted volume). On-demand: `make pnl-report`.
 
@@ -133,13 +135,15 @@ curl -X DELETE http://localhost:8080/api/settings/active-position
 
 ## Trading — `/api/trading`
 
-⚠️ Phase 4 — hard-disabled by default. Do not enable without demo validation.
+⚠️ IG auto-execution — enabled on IG **demo** by default. Toggle live with `TRADING_AUTO_EXECUTION_ENABLED` + `IG_BASE_URL=https://live-api.ig.com/...`. Manual approval via Telegram inline keyboard is enforced by `TRADING_REQUIRE_MANUAL_APPROVAL=true`.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/trading/status` | Auto-execution and kill switch status |
+| `GET` | `/api/trading/status` | Auto-execution + kill switch status |
 | `POST` | `/api/trading/kill-switch/activate` | Emergency stop — halts all auto-trading |
 | `POST` | `/api/trading/kill-switch/deactivate` | Re-enable auto-trading |
+| `POST` | `/api/trading/test-telegram` | Send a plain test message to all configured chat IDs |
+| `POST` | `/api/trading/test-confirm?symbol=X&direction=BUY&price=100` | Send a test inline-keyboard confirmation prompt (2-min timeout) |
 
 ---
 
@@ -150,11 +154,19 @@ For development and demo purposes. See `README.md` for usage.
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/api/test/notify` | Fire synthetic OVERSOLD signal (labelled `[TEST]`) |
-| `POST` | `/api/test/anomaly?type=volume` | Fire test volume spike anomaly alert |
-| `POST` | `/api/test/anomaly?type=polymarket` | Fire test Polymarket odds shift alert |
 | `POST` | `/api/test/lower-thresholds?oversold=50&overbought=50` | Lower thresholds to trigger real signals on next poll |
 | `POST` | `/api/test/reset-thresholds` | Reset all thresholds to 30/70 |
 | `GET` | `/api/test/ig/search?term=DAX` | Search IG epic codes |
+
+> Volume / Polymarket anomaly test endpoints were removed when those features were retired (Apr 2026 — see `docs/project-log.md#2026-04-25`).
+
+---
+
+## Admin — `/api/admin`
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/admin/backfill-csv` | Force `AlertCsvService` to backfill outcome prices (1h/4h/24h) for rows where the periodic job missed them |
 
 ---
 
@@ -219,6 +231,6 @@ It does not trigger additional API calls — the candle data is already in memor
 | Binance | 300s (5 min) | 4 crypto × 3 TFs | 12 | ~3,456 |
 | IG | 900s (15 min) | 5 instruments × 3 TFs | ≤15 (candle-period skip saves ~60%) | ~400–600 data points |
 
-Binance limit: 1,200 requests/min. Current usage: ~2.4/min. IG limit: 10,000 data points/week.
+Binance limit: 1,200 requests/min. Current usage: ~2.4/min. IG limit: 10,000 data points/week (current budget ~5,300/week — see `AGENTS.md` § Important Guardrails).
 
-*See `docs/architecture.md` for system design. See `README.md` for setup.*
+*See `docs/architecture.md` for system design. See `docs/schema.md` for DB tables. See `README.md` for setup.*

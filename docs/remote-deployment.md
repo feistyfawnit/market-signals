@@ -1,6 +1,7 @@
 # Remote Deployment Guide
 
 *AWS (primary), Oracle Cloud, and Alibaba Cloud options*
+*Last updated: May 2026*
 
 ---
 
@@ -8,7 +9,7 @@
 
 | Provider | Status | Cost |
 |----------|--------|------|
-| **AWS eu-west-1** | ✅ **ACTIVE** — `108.128.230.238`, 5 instruments enabled | Free (12 months), then ~€15/mo |
+| **AWS eu-west-1** | ✅ **ACTIVE** — t3.micro in Dublin, GHA auto-deploy on push to `main` | Free (12 months), then ~€15/mo |
 | AWS us-west-2 | ❌ Terminated | — |
 | Oracle | ⏸️ Not needed — AWS working | €0 (if wanted later) |
 | Alibaba | ⏸️ Not needed — AWS working | ~€4/mo post-free-tier |
@@ -115,9 +116,9 @@ curl http://YOUR_ELASTIC_IP:8080/actuator/health
 curl http://YOUR_ELASTIC_IP:8080/api/instruments/enabled
 ```
 
-### Step 6 — Handle 1GB RAM (Swap)
+### Step 6 — Handle 1GB RAM (Swap + JVM caps)
 
-t3.micro has 1GB RAM — Java + PostgreSQL will OOM without swap.
+t3.micro has 1 GB RAM — Java + PostgreSQL will OOM without **both** swap and JVM caps.
 
 ```bash
 sudo fallocate -l 2G /swapfile
@@ -128,11 +129,12 @@ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 free -h
 ```
 
-**Optional:** limit JVM heap in `docker-compose.yml`:
+**Required JVM caps** (already set in committed `docker-compose.yml`, do not weaken without profiling):
 ```yaml
 environment:
-  JAVA_OPTS: "-Xmx512m -Xms256m"
+  JAVA_OPTS: "-Xmx320m -XX:MaxMetaspaceSize=64m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC"
 ```
+Docker hard limits: app container `memory: 450M`, Postgres `memory: 100M`. See `AGENTS.md` § Efficiency Guardrails.
 
 ### Step 7 — Maintenance
 
@@ -450,18 +452,22 @@ docker exec -i market-signals-postgres psql -U postgres market_signals < backup.
 | Feature | Endpoint | Description |
 |---------|----------|-------------|
 | **P&L Report** | `GET /api/positions/pnl-summary` | Live JSON with open/closed positions, win rate, expectancy |
-| **Daily Report** | `./reports/pnl-report.md` | Auto-generated markdown at 06:00 UTC |
-| **Signal History** | `signal_logs` table | Every signal stored with timestamp, price, RSI values |
-| **Candle History** | `candle_history` table | 2,885+ candles persisted, RSI calculated from full history |
-| **Backtest Analysis** | See `docs/backtest-report.md` | Manual analysis of signal quality (TP/SL hit rates) |
+| **P&L CSV** | `GET /api/positions/pnl-report/csv` | Same data, CSV format |
+| **Signal Gaps** | `GET /api/positions/signal-gaps` | Signals that fired but didn't open a position (cooldown / quiet hours / duplicate-open) |
+| **Daily Report** | `./reports/pnl-report.md` | Auto-written at 06:00 UTC by `PositionReportService` |
+| **Signal History** | `signal_logs` table | Every signal stored with timestamp, price, RSI values (90-day retention) |
+| **Position History** | `position_outcomes` table | Open + closed positions with TP/SL/PNL (90-day retention) |
+| **Candle History** | `candle_history` table | 60-day rolling window per `symbol:timeframe` |
+| **Backtest Analysis** | See `docs/archived/backtest-report.md` | Apr 2026 signal quality backtest (findings actioned) |
 
 ```bash
-curl http://108.128.230.238:8080/api/positions/pnl-summary
+EC2_IP=$(your-elastic-ip)
+curl http://$EC2_IP:8080/api/positions/pnl-summary
 
-ssh -i ~/.ssh/market-signals.pem ubuntu@108.128.230.238
+ssh -i ~/.ssh/market-signals.pem ubuntu@$EC2_IP
 cat ~/apps/market-signals/reports/pnl-report.md
 ```
 
 ---
 
-*Last updated: April 2026*
+*See `docs/api.md` for full endpoint reference, `docs/schema.md` for DB tables, and `AGENTS.md` for deploy + runtime guardrails.*
