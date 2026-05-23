@@ -50,7 +50,7 @@ The app runs on an **AWS t3.micro (1 GB RAM, 1 vCPU)**. Efficiency is a first-cl
 
 - **JVM is tightly capped**: `-Xmx320m -XX:MaxMetaspaceSize=64m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC`. Do not raise these without profiling first.
 - **Docker hard limits**: app container `memory: 450M`, Postgres `memory: 100M`. OOM kills are real.
-- **DB queries must be bounded**: `TrendDetectionService.isVolumeConfirmed()` now uses `findBySymbolAndTimeframeOrderByCandleTimeDesc(..., Pageable.ofSize(lookback))` — only the last N candles are fetched. ✅ Fixed Apr 2026.
+- **DB queries must be bounded**: candle-history reads use `findBySymbolAndTimeframeOrderByCandleTimeDesc(..., PageRequest.of(0, n))` — only the last N candles are fetched. Applied in `TrendDetectionService.isVolumeConfirmed()` (Apr 2026) and `AtrCalculator.computeAtr` / `atrExpansionRatio` (May 2026). When adding a new caller, reuse the same pattern; never use the unbounded `...Asc` variant.
 - **Tables that grow forever need archival**: `signal_logs` (90-day), `position_outcomes` (90-day), and `candle_history` (60-day) are all archived weekly/monthly by `HistoryArchivalService` to dated CSVs in `signal_archive/`, then pruned from DB. ✅ Fixed Apr 2026.
 - **Telegram message batching**: `PartialSignalMonitorService` already tightened (60 min window, 30 min interval). Do not increase notification frequency.
 - **No local + AWS simultaneous runs**: doubles IG data point consumption and JVM/DB contention. `make up` is guarded with `LOCAL_RUN=yes` check.

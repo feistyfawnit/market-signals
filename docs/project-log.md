@@ -35,6 +35,11 @@ Three SOL `TREND_BUY_DIP` alerts fired within 60 hours (19/05 09:21, 20/05 19:53
 - `pctMove` floor raised 0.3% → 0.5%. SOL's $85.15→$85.71 (0.66%) would still fire if RSI had recovered, but $85.71→$86.14 (0.50%) is now right at the boundary.
 - Suppression now logged at INFO (was DEBUG) and counted in `filter_event_counts` as `DIP_DEDUPE`.
 
+**C. AtrCalculator query bounded** (AGENTS.md compliance)
+- Both `computeAtr` and `atrExpansionRatio` previously ran `findBy...OrderByCandleTimeAsc` with no `Pageable` — full per-symbol candle scan on every call. Latent issue (called by `VolatilityRegimeService` every poll, by `PositionOutcomeService.computeStopPts` per signal, and now by the new ATR-min-% filter).
+- Now uses `findBy...OrderByCandleTimeDesc(..., PageRequest.of(0, n))` then in-memory `Collections.reverse`. Buffer = `5 × period` (Wilder smoothing half-life ≈ period; 5× leaves <1% seed influence so output matches the old unbounded fetch within rounding). Typical fetch: 71 rows for `period=14` vs up to 1440 previously.
+- All instruments benefit, not just the new TREND_BUY_DIP path. Full test suite (110) still green.
+
 ### Config keys added
 
 ```yaml

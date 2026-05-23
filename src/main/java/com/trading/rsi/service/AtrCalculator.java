@@ -4,10 +4,12 @@ import com.trading.rsi.domain.CandleHistory;
 import com.trading.rsi.repository.CandleHistoryRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -35,6 +37,22 @@ public class AtrCalculator {
 
     private final CandleHistoryRepository candleHistoryRepository;
 
+    // Wilder's smoothing has a half-life ~ period, so 5×period leaves <1% seed
+    // influence — the result is indistinguishable from the previous unbounded fetch
+    // (60-day cap = 1440 candles) within rounding. See AGENTS.md § Efficiency Guardrails.
+    private static final int SMOOTHING_BUFFER_MULTIPLIER = 5;
+
+    /**
+     * Fetch the most-recent {@code n} candles for {@code symbol}+{@code timeframe}
+     * in ascending time order. Bounded query — no full-table scan.
+     */
+    private List<CandleHistory> recentCandlesAsc(String symbol, String timeframe, int n) {
+        List<CandleHistory> desc = candleHistoryRepository
+                .findBySymbolAndTimeframeOrderByCandleTimeDesc(symbol, timeframe, PageRequest.of(0, n));
+        Collections.reverse(desc);
+        return desc;
+    }
+
     /**
      * Compute ATR for a symbol+timeframe.
      *
@@ -46,8 +64,8 @@ public class AtrCalculator {
     public Optional<BigDecimal> computeAtr(String symbol, String timeframe, int period) {
         if (period < 2) return Optional.empty();
 
-        List<CandleHistory> candles = candleHistoryRepository
-                .findBySymbolAndTimeframeOrderByCandleTimeAsc(symbol, timeframe);
+        List<CandleHistory> candles = recentCandlesAsc(
+                symbol, timeframe, period * SMOOTHING_BUFFER_MULTIPLIER + 1);
 
         // Need at least period+1 candles (one prior close for first TR)
         if (candles.size() < period + 1) {
@@ -89,8 +107,8 @@ public class AtrCalculator {
      */
     public Optional<Double> atrExpansionRatio(String symbol, String timeframe,
                                               int period, int avgLookback) {
-        List<CandleHistory> candles = candleHistoryRepository
-                .findBySymbolAndTimeframeOrderByCandleTimeAsc(symbol, timeframe);
+        List<CandleHistory> candles = recentCandlesAsc(
+                symbol, timeframe, period * SMOOTHING_BUFFER_MULTIPLIER + avgLookback);
         if (candles.size() < period + avgLookback + 1) return Optional.empty();
 
         // Build TRs
