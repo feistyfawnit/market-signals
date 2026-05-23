@@ -135,7 +135,7 @@ curl -X DELETE http://localhost:8080/api/settings/active-position
 
 ## Trading — `/api/trading`
 
-⚠️ IG auto-execution — enabled on IG **demo** by default. Toggle live with `TRADING_AUTO_EXECUTION_ENABLED` + `IG_BASE_URL=https://live-api.ig.com/...`. Manual approval via Telegram inline keyboard is enforced by `TRADING_REQUIRE_MANUAL_APPROVAL=true`.
+⚠️ IG auto-execution — **OFF by default** (`TRADING_AUTO_EXECUTION_ENABLED=false`). When enabled, `IG_BASE_URL` selects demo (`https://demo-api.ig.com/...`, the default) vs live (`https://live-api.ig.com/...`). Manual approval via Telegram inline keyboard is enforced when `TRADING_REQUIRE_MANUAL_APPROVAL=true` (default).
 
 | Method | Endpoint | Description |
 |---|---|---|

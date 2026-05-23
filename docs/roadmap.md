@@ -1,6 +1,6 @@
 # LucidLynx Market Signals — Roadmap
 
-*Live on AWS EC2 (eu-west-1). Phase 1–5 scaffolded March–April 2026. For deeper architecture notes see `architecture.md`; for risk decisions see `risk-register.md`; for full signal-design narrative see `project-log.md`.*
+*Last updated: May 2026. Live on AWS EC2 (eu-west-1). For deeper architecture notes see `architecture.md`; for risk decisions see `risk-register.md`; for full signal-design narrative see `project-log.md`.*
 
 ---
 
@@ -10,8 +10,8 @@
 |-------|--------|-------|
 | 1 — Core multi-indicator alerts | ✅ Live | Binance + IG; RSI across 15m/1h/4h; Telegram (ntfy.sh retired Apr 2026). |
 | 2 — IG API integration | ✅ Live | Session auto-refresh; DAX / FTSE / S&P / Gold / Oil / Silver seeded. |
-| 3 — Claude AI enrichment | ✅ Built, disabled | Set `CLAUDE_API_KEY` + `CLAUDE_ENABLED=true`. ~$5–10/mo. |
-| 4 — Semi-automated trading | ✅ Scaffolded, hard-disabled | Requires 3+ months paper-trade validation. Kill switch: `POST /api/trading/kill-switch/activate`. |
+| 3 — AI enrichment | ✅ Built, disabled | Both `ClaudeEnrichmentService` and `DeepSeekEnrichmentService` wired. Toggle with `CLAUDE_ENABLED=true` or `DEEPSEEK_ENABLED=true` + corresponding API key. DeepSeek is the preferred path going forward. |
+| 4 — IG auto-execution | ✅ Scaffolded, OFF by default | `TRADING_AUTO_EXECUTION_ENABLED=false` default. Telegram inline-keyboard manual approval + ratcheting trailing stop + kill switch all live. Requires 3+ months paper-trade validation before enabling. Direction switch + standard-stop fixes shipped May 17 2026. |
 | 5 — Anomaly / geopolitical | ⏳ Partial | **Cross-instrument correlation** and **Volatility regime filter** live. Volume spike, Polymarket, momentum surge, and oil opportunity features removed Apr 2026 — zero actionable signals after weeks of monitoring (see `project-log.md`). Only **Uncertainty Mode** not started. |
 
 ---
@@ -20,6 +20,10 @@
 
 | Date | Milestone | Details |
 |------|-----------|---------|
+| 2026-05-22 | **Chop filters + dedupe tightening + trail-stop guidance** | EMA-slope filter (default ON, 0.05% over 5 candles) and dedupe tightening (RSI recovery requires threshold + 5; pctMove floor 0.5%) live; ATR-min-% filter staged OFF. Telegram alerts include `🪜 Trail:` line for actionable signals. See `project-log.md#2026-05-22`. |
+| 2026-05-22 | **AtrCalculator query bounding** | Both `computeAtr` and `atrExpansionRatio` now use `PageRequest.of(0, 5×period)` instead of full-table fetch. Matches the `isVolumeConfirmed` pattern; removes a latent hot-path scan that ran on every poll. |
+| 2026-05-17 | **IGTradingService fixes + Phase 4 trail-stop design** | Direction switch added for `TREND_BUY_DIP` / `TREND_SELL_RALLY` (previously fell through to default null and silently aborted); standard (non-guaranteed) stops adopted — free to place and free to modify (required for trailing). |
+| 2026-04-25 | **Removed dead-weight anomaly features** | Volume anomaly, Polymarket, cross-correlation burst, momentum surge, oil opportunity review — zero actionable signals after weeks of monitoring. Net heap + scheduler load reduction. |
 | 2026-04-24 | **dipRsiThreshold 60→45 + ADX(14)>20 filter** | P1 fixes from 22-trade analysis. Threshold targets Investopedia-cited "deep pullback in uptrend" zone (40–50). ADX filter suppresses TREND_BUY_DIP during ranging markets (Schwab/Investopedia: ADX<20 = no trend). Deployed together; monitoring 1 week before P2. |
 | 2026-04-24 | **Volume confirmation for crypto TREND_BUY_DIP** | Require 15m entry-candle volume > 1.2× 20-period mean for crypto TREND_BUY_DIP. IG CFD volume unreliable — filter only applies to CRYPTO; skipped silently during warmup. Source: LuxAlgo + r/algotrading consensus. |
 | 2026-04-22 | **Silent signal recording** | Per-instrument `trend-buy-dip-notify` flag — signals log to `position_outcomes` without Telegram alert. S&P 500 TREND_BUY_DIP now silent pending ≥20 trade sample. |
@@ -44,10 +48,10 @@
 
 | Item | Effort | Notes |
 |------|--------|-------|
-| **Close + Open above Summary** | ~30min | Move the full `All Closed Positions` table to just above Open in the P&L report, so both recent-trade tables are at the top before the Summary / By-Instrument sections. |
-| **Periodic candle CSV export + DB cleanup** | ~2h | Extend `PriceHistoryService` trimming: keep last N days in DB, archive older rows to a dated CSV in `reports/candles/` before pruning. Frees EC2 disk without losing history. Alternative: scheduled daily `\copy` via a DB cron. |
-| **RSI-bucket outcome analysis** | ~1h SQL | Once ≥2 weeks of `position_outcomes` exist, split TREND_BUY_DIP wins/losses by rsi15m bucket. If <50 fires win materially more, this confirms the RSI-threshold change above. Query in `project-log.md`. |
-| **Enable Claude AI enrichment** | ~30min | Set `CLAUDE_API_KEY` + `CLAUDE_ENABLED=true`. Service already built. |
+| **Forward-monitor May 22 filters** | ongoing | Watch `filter_event_counts.EMA_SLOPE_FLAT` and `DIP_DEDUPE` weekly. Loosen `ema-slope-min-pct` (0.05 → 0.03%) if a known-trending instrument is over-suppressed. |
+| **ATR-min-% filter calibration** | ~2h | Currently staged OFF. After 2+ weeks of `filter_event_counts.ATR_RANGE_BOUND` data + `position_outcomes` review, decide starter threshold (suggested 0.4% for crypto) and enable via `TREND_ATR_MIN_PCT_FILTER_ENABLED=true`. |
+| **RSI-bucket outcome analysis** | ~1h SQL | Once ≥2 weeks of `position_outcomes` exist post-May-22, split TREND_BUY_DIP wins/losses by rsi15m bucket. If <50 fires win materially more, the Apr 24 threshold change was correct. Query in `project-log.md`. |
+| **Enable DeepSeek enrichment** | ~30min | Set `DEEPSEEK_API_KEY` + `DEEPSEEK_ENABLED=true`. Service already built; preferred over Claude (balance available). |
 | **Telegram bot commands** | ~3h | `/position`, `/close`, `/status`, `/mute`, `/notrade` — manage service via Telegram. Admin-only via chat-id allowlist. |
 | **Momentum fading detector** | ~2h | Notify "FAST TF DIVERGENCE" when 3/3 aligned but fast TFs flip. Exit-timing signal using existing RSI values. |
 
@@ -71,10 +75,11 @@
 
 ## Immediate Next Actions
 
-1. **Monitor Phase 5 filters** — Watch logs for `RISK-OFF SUPPRESSED`, `RISK-ON SUPPRESSED`, and `HIGH VOLATILITY SUPPRESSED` to verify correlation + volatility filters are working.
-3. **Paper trade only** — do not enable Phase 4 auto-exec.
-4. **Run `make candles-backup-remote` weekly** — local CSV backup in `reports/candles/` (retain until you've validated the DB backup story).
-5. **Add `CLAUDE_API_KEY`** when you want richer Telegram context.
+1. **Forward-monitor May 22 filters** — review `filter_event_counts.EMA_SLOPE_FLAT` and `DIP_DEDUPE` weekly via the P&L report's suppressions table. Tune `ema-slope-min-pct` if real trend days are over-suppressed.
+2. **Monitor Phase 5 filters** — watch logs for `RISK-OFF SUPPRESSED`, `RISK-ON SUPPRESSED`, and `HIGH VOLATILITY SUPPRESSED` to verify correlation + volatility filters keep working as instrument set evolves.
+3. **Paper trade only** — do not enable Phase 4 auto-exec (`TRADING_AUTO_EXECUTION_ENABLED=false`).
+4. **Pull reports nightly** — `make pull-reports` or the crontab entry in `troubleshooting.md` keeps the local P&L + CSVs in sync.
+5. **Add `DEEPSEEK_API_KEY`** when you want richer Telegram context (preferred over `CLAUDE_API_KEY` going forward).
 
 ---
 
@@ -82,7 +87,7 @@
 
 - **Data sources**: Binance (FREE, crypto) and IG (FREE with account, indices/FX/commodities/crypto). Finnhub and Twelve Data rejected — free tiers insufficient for indices coverage and rate limits.
 - **Hosting**: AWS EC2 t3.micro (eu-west-1, Free Tier 12 months). Postgres self-hosted in the same Docker Compose. No RDS.
-- **AI model swap**: `ClaudeEnrichmentService` is the only file to change. DeepSeek is preferred (balance available); swap endpoint when ready.
+- **AI model swap**: both `ClaudeEnrichmentService` and `DeepSeekEnrichmentService` are wired and selected by their respective `*_ENABLED` env flags. DeepSeek is the preferred path.
 
 ---
 

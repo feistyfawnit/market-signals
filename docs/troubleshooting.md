@@ -1,5 +1,7 @@
 # Troubleshooting — LucidLynx Market Signals
 
+*Last updated: May 2026*
+
 ## Quick Checks for New Agents
 
 **Before changing any code**, verify IG API status with curl:
@@ -123,10 +125,12 @@ make ship               # normal path — deploy to AWS and watch logs
 
 ### Current Tuning
 
+Source of truth: `Dockerfile` ENTRYPOINT for JVM; `docker-compose.yml` for container limits.
+
 | Layer | Setting | Purpose |
 |-------|---------|---------|
-| JVM | `-Xmx320m -Xms128m` | Heap cap + start size |
-| JVM | `-XX:MaxMetaspaceSize=64m` | Class-metadata ceiling |
+| JVM | `-Xmx320m` | Heap cap (no `-Xms` set; JVM picks small initial) |
+| JVM | `-XX:MaxMetaspaceSize=128m` | Class-metadata ceiling |
 | JVM | `-XX:MaxDirectMemorySize=32m` | Netty buffer cap |
 | JVM | `-XX:+UseSerialGC` | Lower overhead than G1 on 1 vCPU |
 | Docker app | `memory: 450M` | Hard container limit |
@@ -138,7 +142,7 @@ make ship               # normal path — deploy to AWS and watch logs
 Prevents OOM kills during GC spikes or build bursts:
 
 ```bash
-ssh -i ~/.ssh/market-signals.pem ubuntu@108.128.230.238
+ssh -i ~/.ssh/market-signals.pem ubuntu@$EC2_IP
 sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
 sudo mkswap /swapfile && sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
@@ -160,6 +164,10 @@ crontab -e
 
 ## Files to Check
 
-- `application.yml`: `ig-interval-seconds`, instrument list
+- `application.yml`: `ig-interval-seconds`, instrument list, May 2026 chop filter flags (`rsi.trend.ema-slope-*`, `rsi.trend.atr-min-pct-*`, `rsi.trend.dip-*`)
+- `Dockerfile`: JVM caps (canonical source for `-Xmx`, `-XX:Max*`)
+- `docker-compose.yml`: container memory limits, env wiring
 - `docs/project-log.md`: Incident history
 - `docs/risk-register.md`: Known risks and mitigations
+- `docs/api.md`: full REST endpoint reference
+- `AGENTS.md` (repo root): operational guardrails + current runtime shape

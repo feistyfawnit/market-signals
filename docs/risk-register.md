@@ -21,7 +21,7 @@
 | IG API rate limit ban | Medium | High | Exponential backoff; respect limits; demo-first |
 | False signals in choppy markets | High | Medium | ✅ ADX(14)>20 filter (Apr 24 2026); ✅ EMA-slope filter ≥ 0.05% (May 22 2026); ✅ dedupe tightening (May 22 2026) — see `project-log.md#2026-05-22` |
 | RSI calculation bugs | Low | High | Unit test against TA-Lib; backtest on historical data |
-| AWS EC2 downtime / OOM kill | **Occurred** | **High** | JVM capped at `-Xmx320m`; 2 GB swap added; `restart: unless-stopped` auto-recovers app but does not recover sshd if OOM kills OS processes |
+| AWS EC2 downtime / OOM kill | **Occurred** | **High** | JVM capped at `-Xmx320m -XX:MaxMetaspaceSize=128m -XX:MaxDirectMemorySize=32m`; 2 GB swap added; `restart: unless-stopped` auto-recovers app but does not recover sshd if OOM kills OS processes |
 | Feature growth on t3.micro | Medium | Medium | Each new scheduled service adds heap + thread pressure. t3.micro has 1 GB RAM. New features must be assessed for memory/CPU impact before merging (AGENTS.md § Efficiency Guardrails). |
 | Unbounded DB query on hot path | Low | Medium | ✅ `AtrCalculator` bounded May 22 2026; pattern enforced via AGENTS.md (`findBy...Desc(..., PageRequest)`) |
 | Market closure edge case | Medium | Low | Skip polling outside market hours per instrument |

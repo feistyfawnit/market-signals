@@ -129,12 +129,16 @@ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 free -h
 ```
 
-**Required JVM caps** (already set in committed `docker-compose.yml`, do not weaken without profiling):
-```yaml
-environment:
-  JAVA_OPTS: "-Xmx320m -XX:MaxMetaspaceSize=64m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC"
+**Current JVM caps** (set in committed `Dockerfile` ENTRYPOINT, do not weaken without profiling):
+```dockerfile
+ENTRYPOINT ["java",
+  "-Xmx320m",
+  "-XX:MaxMetaspaceSize=128m",
+  "-XX:MaxDirectMemorySize=32m",
+  "-XX:+UseSerialGC",
+  "-jar", "app.jar"]
 ```
-Docker hard limits: app container `memory: 450M`, Postgres `memory: 100M`. See `AGENTS.md` § Efficiency Guardrails.
+Docker hard limits (in `docker-compose.yml`): app container `memory: 450M`, Postgres `memory: 100M`. See `AGENTS.md` § Efficiency Guardrails.
 
 ### Step 7 — Maintenance
 

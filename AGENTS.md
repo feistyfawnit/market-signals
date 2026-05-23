@@ -49,7 +49,7 @@ If you are reviewing or changing this repo, read in this order:
 
 The app runs on an **AWS t3.micro (1 GB RAM, 1 vCPU)**. Efficiency is a first-class priority — every change must consider heap, DB, and API cost.
 
-- **JVM is tightly capped**: `-Xmx320m -XX:MaxMetaspaceSize=64m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC`. Do not raise these without profiling first.
+- **JVM is tightly capped**: `-Xmx320m -XX:MaxMetaspaceSize=128m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC` (set in `Dockerfile` ENTRYPOINT). Do not raise these without profiling first.
 - **Docker hard limits**: app container `memory: 450M`, Postgres `memory: 100M`. OOM kills are real.
 - **DB queries must be bounded**: candle-history reads use `findBySymbolAndTimeframeOrderByCandleTimeDesc(..., PageRequest.of(0, n))` — only the last N candles are fetched. Applied in `TrendDetectionService.isVolumeConfirmed()` (Apr 2026) and `AtrCalculator.computeAtr` / `atrExpansionRatio` (May 2026). When adding a new caller, reuse the same pattern; never use the unbounded `...Asc` variant.
 - **Tables that grow forever need archival**: `signal_logs` (90-day), `position_outcomes` (90-day), and `candle_history` (60-day) are all archived weekly/monthly by `HistoryArchivalService` to dated CSVs in `signal_archive/`, then pruned from DB. ✅ Fixed Apr 2026.

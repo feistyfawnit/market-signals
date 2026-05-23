@@ -96,7 +96,7 @@ Spring Boot service that polls Binance + IG market data on a scheduled interval,
 
 - **`IGAuthService`** — IG API authentication with session auto-refresh every 6 hours.
 - **`IGMarketDataClient`** — thin reactive client over the IG REST API with candle-period skip + 403/quota handling.
-- **`IGTradingService`** — places trades, ratcheting trailing stop, kill switch, daily loss limit, max concurrent positions. Hard gates: `TRADING_AUTO_EXECUTION_ENABLED` + `TRADING_REQUIRE_MANUAL_APPROVAL`. Active on IG **demo** by default; live requires base URL change.
+- **`IGTradingService`** — places trades, ratcheting trailing stop, kill switch, daily loss limit, max concurrent positions. **OFF by default** (`TRADING_AUTO_EXECUTION_ENABLED=false`). When enabled, `IG_BASE_URL` selects demo (default) vs live. Manual approval enforced via `TRADING_REQUIRE_MANUAL_APPROVAL=true`.
 
 ---
 
