@@ -35,14 +35,15 @@ If you are reviewing or changing this repo, read in this order:
   - a direct one-candle `/prices/.../1` curl test
 - `application.yml` seeds instruments, but stale DB rows can still exist after epic changes; restarting and checking enabled instruments/logs matters
 
-## Risk model (as of 2026-04-22)
+## Risk model (current — see `docs/project-log.md` for history)
 
 - **Stops**: ATR(14) on 15m × multiplier (1.5 trend, 2.0 non-trend). Falls back to fixed-pct (`stop-percent-*`) when ATR unavailable. Toggle via `rsi.demo.atr-stops-enabled`.
 - **Reward:Risk** (trend signals): crypto 2:1, indices 3:1, commodities 3:1. Non-trend always 2:1. Configurable per asset class under `rsi.demo.trend-rr-*`.
 - **Crypto 2:1** was lowered from 3:1 after SOL produced 5 wins all via 24h auto-close at +2–3% with zero TP hits — 3:1 target was unreachable on a 24h horizon.
 - **P&L report** uses R-multiple €-estimation: `€ = (pnlPct / stopPctAtEntry) × riskEur`. This correctly credits 24h auto-closes with positive P&L (was previously mis-classified as fixed-€ losses).
-- **Apr 24 2026 P1 changes deployed**: `dipRsiThreshold` lowered 60→45 (cited: Investopedia pullback-in-uptrend zone); `ADX(14) > 20` filter enabled on trend timeframe to skip entries during ranging markets. Monitoring for 1 week before P2.
-- **Crypto volume confirmation** (`rsi.trend.crypto-volume-*`): TREND_BUY_DIP on CRYPTO instruments requires trigger-candle 15m volume > 1.2× the 20-period mean. IG CFD volume is unreliable — filter is silently skipped for indices/commodities and during warmup (<20 candles). Source: LuxAlgo volume guide + r/algotrading consensus.
+- **Apr 24 2026 P1**: `dipRsiThreshold` lowered 60→45; `ADX(14) > 20` filter on trend timeframe.
+- **Crypto volume confirmation** (`rsi.trend.crypto-volume-*`): TREND_BUY_DIP on CRYPTO requires trigger-candle 15m volume > 1.2× the 20-period mean. IG CFD volume is unreliable — filter is silently skipped for indices/commodities and during warmup. Source: LuxAlgo + r/algotrading.
+- **May 22 2026 chop filters**: EMA-slope filter (default **ON**, 0.05% over 5 candles) and dedupe tightening (RSI recovery requires threshold + 5; pctMove floor 0.5%) live; ATR-min-% filter staged **OFF**. Telegram alerts now include a `🪜 Trail:` line for actionable signals. Full detail: `docs/project-log.md#2026-05-22`.
 
 ## Efficiency & Resource Guardrails
 
@@ -59,12 +60,13 @@ The app runs on an **AWS t3.micro (1 GB RAM, 1 vCPU)**. Efficiency is a first-cl
 
 - **Current truth**:
   - `application.yml`
-  - `README.md`
+  - `README.md` — includes full doc index table
   - `docs/troubleshooting.md`
 - **Historical/reference docs**:
   - `docs/project-log.md` — incident and decision history **← check here before proposing previously-removed features**
   - `docs/archived/requirements.md` — original project specification; useful context, but not the current source of truth
   - `docs/roadmap.md` — backlog and phase tracking
+- **MCP / agent tooling**: `../cline-mcp-setup.md` (workspace level) documents Cline + VS Code Copilot MCP servers (fetch, Atlassian, Datadog, DBMentor). This repo has no project-specific MCP servers — standard Cascade/Cline tooling is sufficient.
 
 ## Previously Removed Features (do not re-add without new evidence)
 

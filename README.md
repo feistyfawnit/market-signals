@@ -23,7 +23,7 @@ A production-grade Spring Boot service that monitors financial instruments for m
 
 ## Deployment
 
-- **AWS Free Tier** (primary): EC2 t2.micro in Dublin (`eu-west-1`), 12 months free, ~€15/month after
+- **AWS Free Tier** (primary): EC2 t3.micro in Dublin (`eu-west-1`), 12 months free, ~€15/month after
 - **CI/CD**: GitHub Actions workflow for auto-deploy on push to `main`
 - See `docs/remote-deployment.md` for full setup (manual or Terraform)
 
@@ -183,10 +183,14 @@ docker-compose logs -f app                             # Check logs
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Operational checks, common failures, IG quota notes |
 | [docs/architecture.md](docs/architecture.md) | System design, components, data flow |
 | [docs/api.md](docs/api.md) | REST API reference |
+| [docs/schema.md](docs/schema.md) | PostgreSQL schema (Hibernate-managed) |
+| [docs/roadmap.md](docs/roadmap.md) | Backlog and phase tracking |
+| [docs/remote-deployment.md](docs/remote-deployment.md) | AWS / Oracle / Alibaba deploy guide |
 | [docs/project-log.md](docs/project-log.md) | Incident history and decisions over time |
 | [docs/risk-register.md](docs/risk-register.md) | Risks, constraints, and operational warnings |
 | [docs/archived/requirements.md](docs/archived/requirements.md) | Original historical specification (not the current source of truth) |
 | [docs/archived/backtest-report.md](docs/archived/backtest-report.md) | Apr 2026 signal quality backtest (archived — findings actioned) |
+| [../cline-mcp-setup.md](../cline-mcp-setup.md) | MCP server config (Cline / VS Code Copilot) — workspace-level |
 
 ## How the Indicators Work — Plain English
 
