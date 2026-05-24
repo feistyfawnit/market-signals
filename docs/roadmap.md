@@ -20,6 +20,7 @@
 
 | Date | Milestone | Details |
 |------|-----------|---------|
+| 2026-05-24 | **Suppressed-Signal Retrospective in P&L report** | Daily P&L report now includes a per-(symbol, filter) hindsight section: average next-day close move across the days the filter fired, with ✅ Correct (≤ 0%), ➖ Marginal (≤ 1%), ⚠️ Reconsider (> 1%) verdict bands. Single SQL JOIN of `filter_event_counts` × `daily_price_summary`; no hot-path cost. Answers "are we suppressing winners?" without per-event timestamping. Method: `SignalGapService.buildSuppressionRetrospectiveSection`; query: `FilterEventCountRepository.findSuppressionRetrospectiveSince`. |
 | 2026-05-22 | **Chop filters + dedupe tightening + trail-stop guidance** | EMA-slope filter (default ON, 0.05% over 5 candles) and dedupe tightening (RSI recovery requires threshold + 5; pctMove floor 0.5%) live; ATR-min-% filter staged OFF. Telegram alerts include `🪜 Trail:` line for actionable signals. See `project-log.md#2026-05-22`. |
 | 2026-05-22 | **AtrCalculator query bounding** | Both `computeAtr` and `atrExpansionRatio` now use `PageRequest.of(0, 5×period)` instead of full-table fetch. Matches the `isVolumeConfirmed` pattern; removes a latent hot-path scan that ran on every poll. |
 | 2026-05-17 | **IGTradingService fixes + Phase 4 trail-stop design** | Direction switch added for `TREND_BUY_DIP` / `TREND_SELL_RALLY` (previously fell through to default null and silently aborted); standard (non-guaranteed) stops adopted — free to place and free to modify (required for trailing). |
@@ -48,7 +49,7 @@
 
 | Item | Effort | Notes |
 |------|--------|-------|
-| **Forward-monitor May 22 filters** | ongoing | Watch `filter_event_counts.EMA_SLOPE_FLAT` and `DIP_DEDUPE` weekly. Loosen `ema-slope-min-pct` (0.05 → 0.03%) if a known-trending instrument is over-suppressed. |
+| **Forward-monitor May 22 filters** | ongoing | ✅ Now automated via the **Suppressed-Signal Retrospective** section in the daily P&L report (May 24 2026). Review the verdict column weekly: any filter showing ⚠️ Reconsider (avg > +1% next-day) over 3+ consecutive reports → loosen the threshold (e.g. `ema-slope-min-pct` 0.05 → 0.03%). |
 | **ATR-min-% filter calibration** | ~2h | Currently staged OFF. After 2+ weeks of `filter_event_counts.ATR_RANGE_BOUND` data + `position_outcomes` review, decide starter threshold (suggested 0.4% for crypto) and enable via `TREND_ATR_MIN_PCT_FILTER_ENABLED=true`. |
 | **RSI-bucket outcome analysis** | ~1h SQL | Once ≥2 weeks of `position_outcomes` exist post-May-22, split TREND_BUY_DIP wins/losses by rsi15m bucket. If <50 fires win materially more, the Apr 24 threshold change was correct. Query in `project-log.md`. |
 | **Enable DeepSeek enrichment** | ~30min | Set `DEEPSEEK_API_KEY` + `DEEPSEEK_ENABLED=true`. Service already built; preferred over Claude (balance available). |

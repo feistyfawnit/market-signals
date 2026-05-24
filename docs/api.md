@@ -78,7 +78,7 @@ Tracks outcomes of actionable signals (OVERSOLD, OVERBOUGHT, TREND_BUY_DIP, TREN
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/positions/pnl-summary` | Win rate, avg P&L, expectancy by signal type (JSON) |
-| `GET` | `/api/positions/pnl-report` | Human-readable plain-text report |
+| `GET` | `/api/positions/pnl-report` | Human-readable markdown report — includes Trend-Suppressions table (last 7d) and Suppressed-Signal Retrospective with hindsight verdicts (last 14d) |
 | `GET` | `/api/positions/pnl-report/csv` | Same data as CSV |
 | `GET` | `/api/positions/signal-gaps` | Reports signals that fired but didn't open positions (e.g. cooldown/quiet-hours) |
 | `POST` | `/api/positions/recalculate` | Recompute P&L for closed positions (used after stop/exit logic changes) |

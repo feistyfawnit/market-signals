@@ -146,6 +146,86 @@ public class SignalGapService {
         return md.toString();
     }
 
+    /**
+     * Suppressed-signal retrospective section for the daily P&L report.
+     *
+     * <p>For each (symbol, trend-entry filter) pair, joins {@code filter_event_counts} to
+     * {@code daily_price_summary} (same day + next day) and reports the average next-day percent
+     * move across the days where the filter fired. Answers the question: <b>"Did our filters block
+     * candles that turned out to be wins, or candles that turned out to be losers?"</b>
+     *
+     * <p>Verdict logic (per row):
+     * <ul>
+     *   <li><b>✅ Correct</b> — avg next-day move ≤ 0% (suppression saved a loser)</li>
+     *   <li><b>➖ Marginal</b> — 0% &lt; avg ≤ 1% (small upside missed; below typical 1.5×ATR stop, unlikely to hit TP or trail+)</li>
+     *   <li><b>⚠️ Reconsider</b> — avg &gt; 1% (potentially over-aggressive — the candles we suppressed averaged a meaningful move; investigate whether the threshold is too tight)</li>
+     * </ul>
+     *
+     * <p>CPU cost: one DB query per report build. No hot-path impact.
+     *
+     * @param lookbackDays how many days back to include (inclusive). Should be ≥ 7 to give
+     *                     enough days-observed per (symbol, filter) for the HAVING clause to pass.
+     */
+    public String buildSuppressionRetrospectiveSection(int lookbackDays) {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate since = today.minusDays(lookbackDays);
+
+        List<Object[]> rows;
+        try {
+            rows = filterEventCountRepository.findSuppressionRetrospectiveSince(since, today);
+        } catch (Exception e) {
+            log.warn("Suppression retrospective query failed: {}", e.getMessage());
+            return "";
+        }
+
+        if (rows.isEmpty()) {
+            return "\n## Suppressed-Signal Retrospective (Last " + lookbackDays + " Days)\n\n"
+                 + "*No filter (symbol, day) pairs with ≥2 days of next-day data yet — "
+                 + "the May 22 chop filters need a few more days of `daily_price_summary` "
+                 + "rows on both the suppression day and the day after.*\n";
+        }
+
+        StringBuilder md = new StringBuilder();
+        md.append("\n## Suppressed-Signal Retrospective (Last ").append(lookbackDays).append(" Days)\n\n");
+        md.append("*For each filter, the average next-day close move across days where the filter fired. "
+                + "Positive = we suppressed candles whose markets subsequently rose (potentially missed wins). "
+                + "Negative = we suppressed candles whose markets fell (filter saved losses).*\n\n");
+        md.append("| Sym | Filter | Suppressions | Days | Avg Next-Day | Verdict |\n");
+        md.append("|-----|--------|-------------:|-----:|-------------:|---------|\n");
+
+        for (Object[] row : rows) {
+            String symbol      = (String) row[0];
+            String filter      = (String) row[1];
+            long total         = ((Number) row[2]).longValue();
+            long days          = ((Number) row[3]).longValue();
+            double avgNextPct  = ((Number) row[4]).doubleValue();
+
+            String shortName = SHORT_NAMES.getOrDefault(symbol, symbol);
+            String verdict   = verdictFor(avgNextPct);
+
+            md.append("| ").append(shortName)
+              .append(" | ").append(filter)
+              .append(" | ").append(total)
+              .append(" | ").append(days)
+              .append(" | ").append(String.format("%+.2f%%", avgNextPct))
+              .append(" | ").append(verdict)
+              .append(" |\n");
+        }
+
+        md.append("\n*Verdict bands: ✅ Correct (avg ≤ 0%) · ➖ Marginal (0% < avg ≤ 1%) · "
+                + "⚠️ Reconsider (avg > 1%). Methodology: daily-bucket aggregation — "
+                + "uses `daily_price_summary` close-to-close, not per-suppression price. "
+                + "Sample requires ≥2 days of next-day data per (symbol, filter).*\n");
+        return md.toString();
+    }
+
+    /** Verdict-band helper. Public-package for unit testing. */
+    static String verdictFor(double avgNextDayPct) {
+        if (avgNextDayPct <= 0.0)  return "✅ Correct";
+        if (avgNextDayPct <= 1.0)  return "➖ Marginal";
+        return "⚠️ Reconsider";
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private Map<String, Map<String, Long>> buildSuppressionMap(LocalDate since) {

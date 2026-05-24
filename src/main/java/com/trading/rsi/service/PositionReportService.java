@@ -306,6 +306,13 @@ public class PositionReportService {
             log.warn("Failed to build trend suppression section: {}", e.getMessage());
         }
 
+        // ── Suppressed-Signal Retrospective (hindsight on filter accuracy) ──
+        try {
+            md.append(signalGapService.buildSuppressionRetrospectiveSection(14));
+        } catch (Exception e) {
+            log.warn("Failed to build suppression retrospective section: {}", e.getMessage());
+        }
+
         // ── All Closed Positions (moved to end, collapsed if large) ──
         if (!closed.isEmpty()) {
             md.append("\n<details>\n<summary>All Closed Positions (").append(closed.size()).append(" total) — click to expand</summary>\n\n");
