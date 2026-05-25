@@ -52,6 +52,7 @@ public class PriceHistoryService {
             List<CandleHistory> rows = entry.getValue().stream()
                     .sorted((a, b) -> a.getCandleTime().compareTo(b.getCandleTime()))
                     .toList();
+            int skipped = 0;
             for (CandleHistory row : rows) {
                 Candle candle = Candle.builder()
                         .timestamp(row.getCandleTime())
@@ -61,8 +62,18 @@ public class PriceHistoryService {
                         .close(row.getClose())
                         .volume(row.getVolume())
                         .build();
+                if (!isValidOhlc(candle)) {
+                    // Pre-existing malformed row in DB (e.g. before the May 2026 fix) — skip,
+                    // do not let it pollute the in-memory window. Cleanup of the DB row itself
+                    // is a one-shot ops task, not on the hot path.
+                    skipped++;
+                    continue;
+                }
                 loadCandleIntoMemory(key, candle);
                 candlesLoaded++;
+            }
+            if (skipped > 0) {
+                log.warn("loadFromDatabase: skipped {} malformed candle(s) for key {}", skipped, key);
             }
             keysLoaded++;
         }
@@ -82,6 +93,16 @@ public class PriceHistoryService {
     }
 
     public void updatePriceHistory(String key, Candle candle) {
+        if (!isValidOhlc(candle)) {
+            log.warn("Rejecting malformed candle for {} @ {}: O={} H={} L={} C={} (likely IG session-close artefact)",
+                    key,
+                    candle != null ? candle.getTimestamp() : "null",
+                    candle != null ? candle.getOpen()  : null,
+                    candle != null ? candle.getHigh()  : null,
+                    candle != null ? candle.getLow()   : null,
+                    candle != null ? candle.getClose() : null);
+            return;
+        }
         latestCandleByKey.put(key, candle);
         LinkedList<Candle> candles = candleHistory.computeIfAbsent(key, k -> new LinkedList<>());
         synchronized (candles) {
@@ -92,6 +113,24 @@ public class PriceHistoryService {
         }
         updatePriceHistory(key, candle.getClose());
         persistCandle(key, candle);
+    }
+
+    /**
+     * Returns true iff the candle has all four OHLC values present and strictly positive.
+     * Rejects the IG session-close artefact pattern observed May 2026 (S&P at 22:00 UTC Fri):
+     * candles arriving with O=H=L=C=0 and a tiny volume (1–10). Such rows poison
+     * {@code daily_price_summary} via {@code BigDecimal::min} on low and last-candle close,
+     * which in turn corrupts the Suppressed-Signal Retrospective averages.
+     *
+     * <p>Also guards against null OHLC fields. Volume is intentionally not checked —
+     * legitimate quiet periods can have zero volume.
+     */
+    static boolean isValidOhlc(Candle c) {
+        return c != null
+            && c.getOpen()  != null && c.getOpen().signum()  > 0
+            && c.getHigh()  != null && c.getHigh().signum()  > 0
+            && c.getLow()   != null && c.getLow().signum()   > 0
+            && c.getClose() != null && c.getClose().signum() > 0;
     }
 
     public void updatePriceHistory(String key, BigDecimal closePrice) {
