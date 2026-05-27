@@ -181,6 +181,12 @@ trading:
     max-concurrent-positions: ${TRADING_MAX_CONCURRENT_POSITIONS:2}
     daily-loss-limit-percent: ${TRADING_DAILY_LOSS_LIMIT_PERCENT:2}
     require-manual-approval: ${TRADING_REQUIRE_MANUAL_APPROVAL:true}
+  # When true, sends Telegram CONFIRM/SKIP keyboard on every actionable signal
+  # WITHOUT executing real IG trades. Use this for paper trading with manual
+  # confirmation — the buy button appears, positions are tracked, but no money moves.
+  # Set TRADING_AUTO_EXECUTION_ENABLED=true to graduate to live/semi-live.
+  confirmation:
+    enabled: ${TRADING_CONFIRMATION_ENABLED:false}
 
 notifications:
   telegram:

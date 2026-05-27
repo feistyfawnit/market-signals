@@ -64,6 +64,9 @@ public class IGTradingService {
     @Value("${trading.auto-execution.require-manual-approval:true}")
     private boolean requireManualApproval;
 
+    @Value("${trading.confirmation.enabled:false}")
+    private boolean confirmationOnlyEnabled;
+
     private final AtomicBoolean killSwitchActive = new AtomicBoolean(false);
     private int openPositionCount = 0;
     private BigDecimal dailyPnl = BigDecimal.ZERO;
@@ -72,27 +75,12 @@ public class IGTradingService {
     @EventListener
     @Async
     public void handleSignalEvent(SignalEvent event) {
-        if (!autoExecutionEnabled) {
-            log.debug("Auto-execution disabled — signal logged only");
-            return;
-        }
-
-        if (killSwitchActive.get()) {
-            log.warn("KILL SWITCH ACTIVE — all auto-trading paused. Signal ignored: {}",
-                    event.getSignal().getSymbol());
-            return;
-        }
-
-        if (!authService.isEnabled()) {
-            log.warn("IG API not configured — cannot auto-trade");
-            return;
-        }
-
         RsiSignal signal = event.getSignal();
 
+        // Skip partial signals — monitoring only
         if (signal.getSignalType() == SignalLog.SignalType.PARTIAL_OVERSOLD
                 || signal.getSignalType() == SignalLog.SignalType.PARTIAL_OVERBOUGHT) {
-            log.info("Partial signal for {} — monitoring only, no auto-trade", signal.getSymbol());
+            log.info("Partial signal for {} — monitoring only, no trade action", signal.getSymbol());
             return;
         }
 
@@ -106,24 +94,53 @@ public class IGTradingService {
             return;
         }
 
-        if (!checkRiskLimits()) {
+        // Determine if we should send the confirmation keyboard
+        boolean canConfirm = telegramConfirmationService != null
+                && (confirmationOnlyEnabled || (autoExecutionEnabled && requireManualApproval));
+
+        // If auto-execution is off and confirmation-only is off, nothing to do
+        if (!autoExecutionEnabled && !confirmationOnlyEnabled) {
+            log.debug("Auto-execution and confirmation-only both disabled — signal logged only");
             return;
         }
 
-        if (requireManualApproval) {
-            log.info("MANUAL APPROVAL REQUIRED for {} {} — auto-execution queued but not sent",
-                    signal.getSymbol(), signal.getSignalType());
-            return;
+        if (autoExecutionEnabled) {
+            if (killSwitchActive.get()) {
+                log.warn("KILL SWITCH ACTIVE — all auto-trading paused. Signal ignored: {}", signal.getSymbol());
+                return;
+            }
+            if (!authService.isEnabled()) {
+                log.warn("IG API not configured — cannot auto-trade");
+                return;
+            }
+            if (!checkRiskLimits()) {
+                return;
+            }
         }
 
-        boolean confirmed = telegramConfirmationService.awaitConfirmation(
-                signal.getSymbol(), direction, signal.getCurrentPrice());
-        if (!confirmed) {
-            log.info("Trade skipped (user/timeout) for {} {}", signal.getSymbol(), signal.getSignalType());
-            return;
+        // Send confirmation keyboard if manual approval is required or confirmation-only mode
+        boolean userConfirmed = true;  // default: auto-confirm if no keyboard
+        if (canConfirm) {
+            log.info("Sending confirmation keyboard for {} {} @ {}",
+                    signal.getSymbol(), direction, signal.getCurrentPrice());
+            boolean confirmed = telegramConfirmationService.awaitConfirmation(
+                    signal.getSymbol(), direction, signal.getCurrentPrice());
+            if (!confirmed) {
+                log.info("Trade skipped (user/timeout) for {} {}", signal.getSymbol(), signal.getSignalType());
+                return;
+            }
+            userConfirmed = true;
+        } else if (autoExecutionEnabled && !requireManualApproval) {
+            log.info("Auto-executing {} {} without manual approval", signal.getSymbol(), signal.getSignalType());
         }
 
-        executeTrade(signal, direction);
+        // Execute real IG trade only if auto-execution is enabled and confirmed
+        if (autoExecutionEnabled && userConfirmed) {
+            executeTrade(signal, direction);
+        } else if (confirmationOnlyEnabled && userConfirmed) {
+            log.info("Confirmation-only: user confirmed {} {} — paper trade tracked by PositionOutcomeService",
+                    signal.getSymbol(), direction);
+        }
     }
 
     private boolean checkRiskLimits() {

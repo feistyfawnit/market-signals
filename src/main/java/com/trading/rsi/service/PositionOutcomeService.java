@@ -253,6 +253,7 @@ public class PositionOutcomeService {
 
         long stopPts = pos.getStopPts();
         long trailThresholdPts = Math.max(1L, stopPts / 2);   // 50% of initial stop distance
+        long trailDistance = trailThresholdPts;                // trail distance = threshold (matches signal spec: "trail Xpt below new highs")
 
         BigDecimal unrealisedGain;
         if (Boolean.TRUE.equals(pos.getIsLong())) {
@@ -263,12 +264,20 @@ public class PositionOutcomeService {
 
         if (unrealisedGain.compareTo(BigDecimal.valueOf(trailThresholdPts)) < 0) return;
 
+        // Two-stage trail (matches signal Telegram spec):
+        //   Stage 1: at +threshold pts → stop to entry (breakeven)
+        //   Stage 2: trail at trailDistance below new highs, never below breakeven
         BigDecimal newStopLevel;
         if (Boolean.TRUE.equals(pos.getIsLong())) {
-            newStopLevel = currentPrice.subtract(BigDecimal.valueOf(stopPts));
+            BigDecimal breakevenStop = pos.getEntryPrice();
+            BigDecimal trailStop = currentPrice.subtract(BigDecimal.valueOf(trailDistance));
+            // Use the tighter of breakeven or trail — once price runs far enough, trailStop > breakevenStop
+            newStopLevel = trailStop.max(breakevenStop);
             if (newStopLevel.compareTo(pos.getSlPrice()) <= 0) return;  // never reverse
         } else {
-            newStopLevel = currentPrice.add(BigDecimal.valueOf(stopPts));
+            BigDecimal breakevenStop = pos.getEntryPrice();
+            BigDecimal trailStop = currentPrice.add(BigDecimal.valueOf(trailDistance));
+            newStopLevel = trailStop.min(breakevenStop);
             if (newStopLevel.compareTo(pos.getSlPrice()) >= 0) return;  // never reverse
         }
 
