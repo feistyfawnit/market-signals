@@ -43,7 +43,7 @@ public class TelegramConfirmationService {
     @Value("${notifications.telegram.chat-ids:}")
     private String chatIds;
 
-    private final ConcurrentHashMap<String, CompletableFuture<Boolean>> pending = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Pending> pending = new ConcurrentHashMap<>();
     private volatile long lastUpdateId = -1;
 
     /**
@@ -71,10 +71,11 @@ public class TelegramConfirmationService {
                 boolean skip = data.endsWith(":skip");
                 if (!confirmed && !skip) continue;
                 String key = data.substring(0, data.lastIndexOf(':'));
-                CompletableFuture<Boolean> future = pending.get(key);
-                if (future != null && !future.isDone()) {
-                    future.complete(confirmed);
+                Pending p = pending.get(key);
+                if (p != null && !p.future.isDone()) {
+                    p.future.complete(confirmed);
                     answerCallback(cq.getId(), confirmed ? "\u2705 Trade confirmed" : "\u23ed Trade skipped");
+                    finalizeMessage(cq, p, confirmed);
                     log.info("Trade confirmation received: key={} confirmed={}", key, confirmed);
                 }
             }
@@ -94,12 +95,12 @@ public class TelegramConfirmationService {
             return true;
         }
         String key = UUID.randomUUID().toString();
-        CompletableFuture<Boolean> future = new CompletableFuture<>();
-        pending.put(key, future);
+        Pending p = new Pending(new CompletableFuture<>());
+        pending.put(key, p);
         try {
-            sendInlineKeyboard(symbol, direction, price, key);
+            sendInlineKeyboard(symbol, direction, price, key, p);
             log.info("Awaiting Telegram confirmation for {} {} @ {} (key={})", direction, symbol, price, key);
-            return future.get(120, TimeUnit.SECONDS);
+            return p.future.get(120, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             log.info("Confirmation timed out for {} {} — auto-skipping", direction, symbol);
             return false;
@@ -122,15 +123,15 @@ public class TelegramConfirmationService {
             return;
         }
         String key = "TEST_" + UUID.randomUUID();
-        CompletableFuture<Boolean> future = new CompletableFuture<>();
-        pending.put(key, future);
-        sendInlineKeyboard(symbol, direction, price, key);
+        Pending p = new Pending(new CompletableFuture<>());
+        pending.put(key, p);
+        sendInlineKeyboard(symbol, direction, price, key, p);
         CompletableFuture.delayedExecutor(120, TimeUnit.SECONDS)
-                .execute(() -> { pending.remove(key); future.completeExceptionally(new TimeoutException("test expired")); });
+                .execute(() -> { pending.remove(key); p.future.completeExceptionally(new TimeoutException("test expired")); });
         log.info("Test confirmation keyboard sent for {} {} @ {}", direction, symbol, price);
     }
 
-    private void sendInlineKeyboard(String symbol, String direction, BigDecimal price, String key) {
+    private void sendInlineKeyboard(String symbol, String direction, BigDecimal price, String key, Pending p) {
         if (botToken.isBlank()) return;
         String chatId = Arrays.stream(chatIds.split(","))
                 .map(String::trim).filter(s -> !s.isBlank()).findFirst().orElse("");
@@ -139,6 +140,7 @@ public class TelegramConfirmationService {
         String emoji = "BUY".equals(direction) ? "\uD83D\uDFE2" : "\uD83D\uDD34";
         String text = String.format("%s %s %s @ %s\n\nConfirm trade? Auto-skips in 2 min.",
                 emoji, direction, symbol, price.stripTrailingZeros().toPlainString());
+        p.prompt = text;
 
         Map<String, Object> payload = Map.of(
                 "chat_id", chatId,
@@ -155,6 +157,30 @@ public class TelegramConfirmationService {
                 .retrieve()
                 .bodyToMono(String.class)
                 .doOnError(e -> log.error("Failed to send confirmation keyboard: {}", e.getMessage()))
+                .onErrorResume(e -> Mono.empty())
+                .subscribe();
+    }
+
+    /**
+     * Rewrites the prompt message to show the decision and strips the inline keyboard,
+     * so the user gets a persistent confirmation and can't press the button twice.
+     */
+    private void finalizeMessage(CallbackQuery cq, Pending p, boolean confirmed) {
+        if (botToken.isBlank() || cq.getMessage() == null || cq.getMessage().getChat() == null) return;
+        String decision = confirmed ? "\n\n\u2705 CONFIRMED \u2014 placing trade\u2026" : "\n\n\u23ed SKIPPED";
+        String newText = (p.prompt != null ? p.prompt : "Trade") + decision;
+        Map<String, Object> payload = Map.of(
+                "chat_id", cq.getMessage().getChat().getId(),
+                "message_id", cq.getMessage().getMessageId(),
+                "text", newText
+        );
+        webClientBuilder.baseUrl("https://api.telegram.org").build()
+                .post()
+                .uri("/bot" + botToken + "/editMessageText")
+                .bodyValue(payload)
+                .retrieve()
+                .bodyToMono(String.class)
+                .doOnError(e -> log.warn("editMessageText failed: {}", e.getMessage()))
                 .onErrorResume(e -> Mono.empty())
                 .subscribe();
     }
@@ -190,5 +216,26 @@ public class TelegramConfirmationService {
     private static class CallbackQuery {
         private String id;
         private String data;
+        private Message message;
+    }
+
+    @Data
+    private static class Message {
+        @JsonProperty("message_id")
+        private long messageId;
+        private Chat chat;
+    }
+
+    @Data
+    private static class Chat {
+        private long id;
+    }
+
+    private static class Pending {
+        private final CompletableFuture<Boolean> future;
+        private volatile String prompt;
+        private Pending(CompletableFuture<Boolean> future) {
+            this.future = future;
+        }
     }
 }
