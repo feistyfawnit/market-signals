@@ -82,7 +82,7 @@ rsi:
     # because "fast-TF RSI < 60" fires at mere neutral (RSI ~55) — entries land at the
     # top of micro-pullbacks, not real dip bottoms. 45 targets the Investopedia-cited
     # "deep pullback in uptrend" zone. Revisit after 20+ trades.
-    dip-rsi-threshold: ${TREND_DIP_RSI_THRESHOLD:50}     # bumped 45→50 May 2026 — signals too sparse; 45 was too deep a pullback requirement
+    dip-rsi-threshold: ${TREND_DIP_RSI_THRESHOLD:45}     # reverted 50→45 May 28 2026 — 50 fired at neutral RSI (45-49), producing false-positive dips on Oil/BTC/S&P that were not real pullbacks. 45 = researched deep-pullback zone (see lines above).
     rally-rsi-threshold: ${TREND_RALLY_RSI_THRESHOLD:55}
     trend-timeout-hours: ${TREND_TIMEOUT_HOURS:12}
     suppress-counter-trend: ${TREND_SUPPRESS_COUNTER:true}
@@ -287,7 +287,9 @@ watchlist:
       # for forward P&L tracking, but no Telegram alert. Matches the pattern used to evaluate
       # a signal-type on a new instrument without live-alert noise. Flip back to true once
       # ≥20 trades of data show positive expectancy.
-      trend-buy-dip-notify: true
+      # May 28 2026: reverted to silent — every recorded S&P dip was a loss, and notify=true
+      # was firing live confirm prompts on neutral-RSI false positives.
+      trend-buy-dip-notify: false
     # Gold — verified epic CS.D.USCGC.TODAY.IP (Spot Gold, XAU/USD proxy)
     - symbol: CS.D.USCGC.TODAY.IP
       name: Gold
@@ -311,6 +313,7 @@ watchlist:
       # Re-enabled Apr 2026 for cross-asset correlation detection.
       # Oil spikes often precede index/crypto selloffs.
       # RSI signals on oil alone may be noisy — primary use is as leading indicator.
+      trend-buy-dip-enabled: false  # May 28 2026: oil is a leading indicator only; commodity dips backtest at −1.00R. Was firing false-positive dips (e.g. 28 May, 15m RSI 49.2).
     - symbol: IX.D.NASDAQ.CASH.IP
       name: Nasdaq 100
       source: IG

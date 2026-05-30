@@ -48,6 +48,7 @@ public class IGTradingService {
     private final InstrumentRepository instrumentRepository;
     private final PositionOutcomeRepository positionOutcomeRepository;
     private final TelegramConfirmationService telegramConfirmationService;
+    private final TelegramNotificationService telegramNotificationService;
 
     @Value("${trading.auto-execution.enabled:false}")
     private boolean autoExecutionEnabled;
@@ -81,6 +82,14 @@ public class IGTradingService {
         if (signal.getSignalType() == SignalLog.SignalType.PARTIAL_OVERSOLD
                 || signal.getSignalType() == SignalLog.SignalType.PARTIAL_OVERBOUGHT) {
             log.info("Partial signal for {} — monitoring only, no trade action", signal.getSymbol());
+            return;
+        }
+
+        // Silent signals are recorded for forward P&L only — no Telegram prompt, no trade.
+        // Mirrors NotificationService, which also suppresses alerts when silent.
+        if (signal.isSilent()) {
+            log.info("Silent signal for {} {} — recording only, no confirmation prompt or trade",
+                    signal.getSymbol(), signal.getSignalType());
             return;
         }
 
@@ -191,12 +200,18 @@ public class IGTradingService {
                     .flatMap(dealResp -> {
                         if (dealResp == null || dealResp.getDealReference() == null) {
                             log.warn("Null deal response for {} — skipping confirm", signal.getSymbol());
+                            telegramNotificationService.send("\u26a0\ufe0f Trade not placed",
+                                    String.format("%s %s — IG returned no deal reference.", direction, signal.getSymbol()));
                             return Mono.empty();
                         }
                         log.info("Trade placed: {} {} deal ref: {}", direction, signal.getSymbol(), dealResp.getDealReference());
                         return confirmDeal(dealResp.getDealReference(), session, signal);
                     })
-                    .doOnError(e -> log.error("Trade placement failed for {}: {}", signal.getSymbol(), e.getMessage()))
+                    .doOnError(e -> {
+                        log.error("Trade placement failed for {}: {}", signal.getSymbol(), e.getMessage());
+                        telegramNotificationService.send("\u274c Trade placement failed",
+                                String.format("%s %s — %s", direction, signal.getSymbol(), e.getMessage()));
+                    })
                     .onErrorResume(e -> Mono.empty())
                     .subscribe();
 
@@ -227,6 +242,10 @@ public class IGTradingService {
         }
         if ("ACCEPTED".equals(confirm.getDealStatus())) {
             openPositionCount++;
+            telegramNotificationService.send("\u2705 Trade placed",
+                    String.format("%s %s ACCEPTED%s (dealId %s)", signal.getSignalType(), signal.getSymbol(),
+                            confirm.getLevel() != null ? " @ " + confirm.getLevel().stripTrailingZeros().toPlainString() : "",
+                            confirm.getDealId()));
             positionOutcomeRepository.findFirstBySymbolAndExitTimeIsNull(signal.getSymbol())
                     .ifPresentOrElse(pos -> {
                         pos.setIgDealRef(dealRef);
@@ -236,6 +255,8 @@ public class IGTradingService {
                     }, () -> log.warn("No open DB position found for {} to attach igDealId={}", signal.getSymbol(), confirm.getDealId()));
         } else {
             log.warn("Trade REJECTED for {} — reason={}", signal.getSymbol(), confirm.getReason());
+            telegramNotificationService.send("\u274c Trade rejected",
+                    String.format("%s %s — %s", signal.getSignalType(), signal.getSymbol(), confirm.getReason()));
             positionOutcomeRepository.findFirstBySymbolAndExitTimeIsNull(signal.getSymbol())
                     .ifPresent(pos -> {
                         pos.setExitPrice(pos.getEntryPrice());
