@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class IGAuthService {
 
     private final WebClient igClient;
+    private final String baseUrl;
     private final String apiKey;
     private final String username;
     private final String password;
@@ -33,6 +34,7 @@ public class IGAuthService {
             @Value("${market.ig.password:}") String password,
             @Value("${market.ig.enabled:false}") boolean enabled,
             WebClient.Builder builder) {
+        this.baseUrl = baseUrl;
         this.igClient = builder.baseUrl(baseUrl).build();
         this.apiKey = apiKey;
         this.username = username;
@@ -43,7 +45,7 @@ public class IGAuthService {
     @PostConstruct
     public void init() {
         if (isEnabled()) {
-            log.info("IG API enabled — authenticating on startup ({})", igClient.toString().contains("demo") ? "DEMO" : "LIVE");
+            log.info("IG API enabled — authenticating on startup ({})", isDemoUrl() ? "DEMO" : "LIVE");
             authenticate();
         } else {
             log.info("IG API disabled — set IG_ENABLED=true and credentials to activate indices");
@@ -120,7 +122,7 @@ public class IGAuthService {
     }
 
     private boolean isDemoUrl() {
-        return igClient.toString().contains("demo");
+        return baseUrl.contains("demo");
     }
 
     @Scheduled(fixedDelay = 6 * 60 * 60 * 1000)
