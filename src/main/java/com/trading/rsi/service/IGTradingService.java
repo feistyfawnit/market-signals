@@ -68,8 +68,11 @@ public class IGTradingService {
     @Value("${trading.confirmation.enabled:false}")
     private boolean confirmationOnlyEnabled;
 
-    @Value("${trading.auto-execution.base-deal-size:1}")
-    private double baseDealSize;
+    // IG's reported minDealSize is unreliable on the demo feed (e.g. Solana reports 4.0 but
+    // the true minimum is 7). Multiply the reported minimum by this buffer so deals clear the
+    // real floor. Scales naturally per market — verified ×2 accepts SOL/BTC/ETH on the demo.
+    @Value("${trading.auto-execution.min-size-multiplier:2}")
+    private double minSizeMultiplier;
 
     @Value("${rsi.demo.account-currency:EUR}")
     private String accountCurrency;
@@ -265,14 +268,19 @@ public class IGTradingService {
         return codes.contains(accountCurrency) ? accountCurrency : codes.get(0);
     }
 
-    /** Use the configured base size, raised to the market minimum if the base is too small (IG rejects sub-minimum sizes). */
+    /**
+     * Smallest valid order = reported market minimum × buffer. IG's reported minDealSize
+     * understates the true demo minimum for some markets (Solana reports 4.0 but rejects
+     * anything below 7), so the buffer absorbs that gap. Scales per market, keeping notional
+     * proportional (BTC 0.01→0.02, ETH 0.2→0.4, SOL 4→8).
+     */
     private String resolveDealSize(MarketDetailsResponse md) {
         BigDecimal min = (md != null && md.getDealingRules() != null
                 && md.getDealingRules().getMinDealSize() != null
                 && md.getDealingRules().getMinDealSize().getValue() != null)
                 ? md.getDealingRules().getMinDealSize().getValue()
                 : BigDecimal.ONE;
-        BigDecimal size = BigDecimal.valueOf(baseDealSize).max(min);
+        BigDecimal size = min.multiply(BigDecimal.valueOf(minSizeMultiplier));
         return size.stripTrailingZeros().toPlainString();
     }
 
