@@ -68,6 +68,12 @@ public class IGTradingService {
     @Value("${trading.confirmation.enabled:false}")
     private boolean confirmationOnlyEnabled;
 
+    @Value("${trading.auto-execution.base-deal-size:1}")
+    private double baseDealSize;
+
+    @Value("${rsi.demo.account-currency:EUR}")
+    private String accountCurrency;
+
     private final AtomicBoolean killSwitchActive = new AtomicBoolean(false);
     private int openPositionCount = 0;
     private BigDecimal dailyPnl = BigDecimal.ZERO;
@@ -185,28 +191,18 @@ public class IGTradingService {
                     .filter(e -> e != null && !e.isBlank())
                     .orElse(signal.getSymbol());
 
-            DealRequest dealRequest = new DealRequest(epic, direction, "1", "MARKET", false);
-
-            authService.getClient().post()
-                    .uri("/positions/otc")
+            // Dealing rules (expiry, currency, min deal size) vary per market — fetch them so the
+            // OTC payload is always valid. IG v2 /positions/otc requires expiry, currencyCode and
+            // forceOpen, and rejects sizes below the market minimum (e.g. Solana min is 4.0).
+            authService.getClient().get()
+                    .uri("/markets/{epic}", epic)
                     .header("X-IG-API-KEY", authService.getApiKey())
                     .header("CST", session.getCst())
                     .header("X-SECURITY-TOKEN", session.getSecurityToken())
-                    .header("Version", "2")
-                    .bodyValue(dealRequest)
+                    .header("Version", "3")
                     .retrieve()
-                    .bodyToMono(DealResponse.class)
-                    .delayElement(Duration.ofSeconds(2))
-                    .flatMap(dealResp -> {
-                        if (dealResp == null || dealResp.getDealReference() == null) {
-                            log.warn("Null deal response for {} — skipping confirm", signal.getSymbol());
-                            telegramNotificationService.send("\u26a0\ufe0f Trade not placed",
-                                    String.format("%s %s — IG returned no deal reference.", direction, signal.getSymbol()));
-                            return Mono.empty();
-                        }
-                        log.info("Trade placed: {} {} deal ref: {}", direction, signal.getSymbol(), dealResp.getDealReference());
-                        return confirmDeal(dealResp.getDealReference(), session, signal);
-                    })
+                    .bodyToMono(MarketDetailsResponse.class)
+                    .flatMap(md -> placeDeal(epic, direction, md, session, signal))
                     .doOnError(e -> {
                         log.error("Trade placement failed for {}: {}", signal.getSymbol(), e.getMessage());
                         telegramNotificationService.send("\u274c Trade placement failed",
@@ -218,6 +214,66 @@ public class IGTradingService {
         } catch (Exception e) {
             log.error("Trade execution error for {}: {}", signal.getSymbol(), e.getMessage());
         }
+    }
+
+    private Mono<Void> placeDeal(String epic, String direction, MarketDetailsResponse md,
+                                 IGAuthService.IGSession session, RsiSignal signal) {
+        String expiry = (md != null && md.getInstrument() != null && md.getInstrument().getExpiry() != null)
+                ? md.getInstrument().getExpiry() : "-";
+        String currencyCode = resolveCurrencyCode(md);
+        String size = resolveDealSize(md);
+
+        DealRequest dealRequest = new DealRequest(epic, expiry, direction, size, "MARKET", currencyCode, true, false);
+        log.info("Placing IG deal: epic={} expiry={} dir={} size={} ccy={}",
+                epic, expiry, direction, size, currencyCode);
+
+        return authService.getClient().post()
+                .uri("/positions/otc")
+                .header("X-IG-API-KEY", authService.getApiKey())
+                .header("CST", session.getCst())
+                .header("X-SECURITY-TOKEN", session.getSecurityToken())
+                .header("Version", "2")
+                .bodyValue(dealRequest)
+                .retrieve()
+                .bodyToMono(DealResponse.class)
+                .delayElement(Duration.ofSeconds(2))
+                .flatMap(dealResp -> {
+                    if (dealResp == null || dealResp.getDealReference() == null) {
+                        log.warn("Null deal response for {} — skipping confirm", signal.getSymbol());
+                        telegramNotificationService.send("\u26a0\ufe0f Trade not placed",
+                                String.format("%s %s — IG returned no deal reference.", direction, signal.getSymbol()));
+                        return Mono.empty();
+                    }
+                    log.info("Trade placed: {} {} deal ref: {}", direction, signal.getSymbol(), dealResp.getDealReference());
+                    return confirmDeal(dealResp.getDealReference(), session, signal);
+                });
+    }
+
+    /** Prefer the account currency when the market supports it, otherwise the market's first dealing currency. */
+    private String resolveCurrencyCode(MarketDetailsResponse md) {
+        if (md == null || md.getInstrument() == null || md.getInstrument().getCurrencies() == null
+                || md.getInstrument().getCurrencies().isEmpty()) {
+            return accountCurrency;
+        }
+        List<String> codes = md.getInstrument().getCurrencies().stream()
+                .map(MarketCurrency::getCode)
+                .filter(c -> c != null && !c.isBlank())
+                .toList();
+        if (codes.isEmpty()) {
+            return accountCurrency;
+        }
+        return codes.contains(accountCurrency) ? accountCurrency : codes.get(0);
+    }
+
+    /** Use the configured base size, raised to the market minimum if the base is too small (IG rejects sub-minimum sizes). */
+    private String resolveDealSize(MarketDetailsResponse md) {
+        BigDecimal min = (md != null && md.getDealingRules() != null
+                && md.getDealingRules().getMinDealSize() != null
+                && md.getDealingRules().getMinDealSize().getValue() != null)
+                ? md.getDealingRules().getMinDealSize().getValue()
+                : BigDecimal.ONE;
+        BigDecimal size = BigDecimal.valueOf(baseDealSize).max(min);
+        return size.stripTrailingZeros().toPlainString();
     }
 
     private Mono<Void> confirmDeal(String dealRef, IGAuthService.IGSession session, RsiSignal signal) {
@@ -368,10 +424,40 @@ public class IGTradingService {
     @Data
     private static class DealRequest {
         private final String epic;
+        private final String expiry;
         private final String direction;
         private final String size;
         private final String orderType;
+        private final String currencyCode;
+        private final boolean forceOpen;
         private final boolean guaranteedStop;
+    }
+
+    @Data
+    private static class MarketDetailsResponse {
+        private MarketInstrument instrument;
+        private MarketDealingRules dealingRules;
+    }
+
+    @Data
+    private static class MarketInstrument {
+        private String expiry;
+        private List<MarketCurrency> currencies;
+    }
+
+    @Data
+    private static class MarketCurrency {
+        private String code;
+    }
+
+    @Data
+    private static class MarketDealingRules {
+        private MinDealSize minDealSize;
+    }
+
+    @Data
+    private static class MinDealSize {
+        private BigDecimal value;
     }
 
     @Data
