@@ -96,6 +96,19 @@ public class PositionOutcomeService {
     @Value("${rsi.demo.trend-rr-commodity:3.0}")
     private double trendRrCommodity;
 
+    // Paper-mode trailing: ratchet the stop in the close-time candle replay for positions
+    // that have no live IG deal (igDealId == null). Mirrors the two-stage manual trail in the
+    // Telegram "🪜 Trail:" guidance — at +50%-of-stop move to breakeven, then trail that distance
+    // below new extremes. Live IG positions keep using the real-time IGTradingService stop updates.
+    @Value("${rsi.demo.paper-trailing-enabled:true}")
+    private boolean paperTrailingEnabled;
+
+    // Cap simultaneous open positions per asset class (CRYPTO / INDEX / COMMODITY). Correlated
+    // crypto (SOL+BTC+ETH) fire together on a single market-wide dip; without this they all open
+    // at once. 0 or negative disables the cap.
+    @Value("${rsi.demo.max-concurrent-per-asset-class:2}")
+    private int maxConcurrentPerAssetClass;
+
     private boolean isQuietHours() {
         if (!quietHoursEnabled) return false;
         int h = ZonedDateTime.now(ZoneOffset.UTC).getHour();
@@ -141,6 +154,22 @@ public class PositionOutcomeService {
                     signal.getSymbol(), signal.getSignalType(), signalCooldownHours);
             filterEventCounterService.record("POSITION_COOLDOWN", signal.getSymbol());
             return;
+        }
+
+        // Guard: cap concurrent open positions in the same asset class. Correlated crypto
+        // (SOL+BTC+ETH) routinely fire TREND_BUY_DIP within the same minute on a market-wide dip;
+        // this stops all three opening (and prompting) at once.
+        if (maxConcurrentPerAssetClass > 0) {
+            String cls = assetClass(signal.getSymbol());
+            long sameClassOpen = positionOutcomeRepository.findByExitTimeIsNull().stream()
+                    .filter(p -> assetClass(p.getSymbol()).equals(cls))
+                    .count();
+            if (sameClassOpen >= maxConcurrentPerAssetClass) {
+                log.info("Skipping position for {} {} — {} {} positions already open (ASSET_CLASS_CONCURRENCY)",
+                        signal.getSymbol(), signal.getSignalType(), sameClassOpen, cls);
+                filterEventCounterService.record("ASSET_CLASS_CONCURRENCY", signal.getSymbol());
+                return;
+            }
         }
 
         boolean isLong = signal.getSignalType() == SignalLog.SignalType.OVERSOLD
@@ -344,40 +373,11 @@ public class PositionOutcomeService {
                 .findBySymbolAndTimeframeAndCandleTimeBetweenOrderByCandleTimeAsc(
                         pos.getSymbol(), timeframe, pos.getEntryTime(), now);
 
-        boolean tpHit = false;
-        boolean slHit = false;
-        BigDecimal exitPrice = null;
-        Instant exitTime = null;
-
-        for (CandleHistory candle : candles) {
-            if (pos.getIsLong()) {
-                if (candle.getLow().compareTo(pos.getSlPrice()) <= 0) {
-                    slHit = true;
-                    exitPrice = pos.getSlPrice();
-                    exitTime = candle.getCandleTime();
-                    break;
-                }
-                if (candle.getHigh().compareTo(pos.getTpPrice()) >= 0) {
-                    tpHit = true;
-                    exitPrice = pos.getTpPrice();
-                    exitTime = candle.getCandleTime();
-                    break;
-                }
-            } else {
-                if (candle.getHigh().compareTo(pos.getSlPrice()) >= 0) {
-                    slHit = true;
-                    exitPrice = pos.getSlPrice();
-                    exitTime = candle.getCandleTime();
-                    break;
-                }
-                if (candle.getLow().compareTo(pos.getTpPrice()) <= 0) {
-                    tpHit = true;
-                    exitPrice = pos.getTpPrice();
-                    exitTime = candle.getCandleTime();
-                    break;
-                }
-            }
-        }
+        ReplayExit ex = replayCandles(pos, candles);
+        boolean tpHit = ex.tpHit;
+        boolean slHit = ex.slHit;
+        BigDecimal exitPrice = ex.exitPrice;
+        Instant exitTime = ex.exitTime;
 
         // 24h auto-close if neither TP nor SL hit
         if (!tpHit && !slHit && pos.getEntryTime().plus(MAX_HOLDING).isBefore(now)) {
@@ -517,32 +517,11 @@ public class PositionOutcomeService {
                         .findBySymbolAndTimeframeAndCandleTimeBetweenOrderByCandleTimeAsc(
                                 pos.getSymbol(), timeframe, pos.getEntryTime(), now);
 
-                boolean tpHit = false;
-                boolean slHit = false;
-                BigDecimal exitPrice = null;
-                Instant exitTime = null;
-
-                for (CandleHistory candle : candles) {
-                    if (Boolean.TRUE.equals(pos.getIsLong())) {
-                        if (candle.getLow().compareTo(pos.getSlPrice()) <= 0) {
-                            slHit = true; exitPrice = pos.getSlPrice(); exitTime = candle.getCandleTime();
-                            break;
-                        }
-                        if (candle.getHigh().compareTo(pos.getTpPrice()) >= 0) {
-                            tpHit = true; exitPrice = pos.getTpPrice(); exitTime = candle.getCandleTime();
-                            break;
-                        }
-                    } else {
-                        if (candle.getHigh().compareTo(pos.getSlPrice()) >= 0) {
-                            slHit = true; exitPrice = pos.getSlPrice(); exitTime = candle.getCandleTime();
-                            break;
-                        }
-                        if (candle.getLow().compareTo(pos.getTpPrice()) <= 0) {
-                            tpHit = true; exitPrice = pos.getTpPrice(); exitTime = candle.getCandleTime();
-                            break;
-                        }
-                    }
-                }
+                ReplayExit ex = replayCandles(pos, candles);
+                boolean tpHit = ex.tpHit;
+                boolean slHit = ex.slHit;
+                BigDecimal exitPrice = ex.exitPrice;
+                Instant exitTime = ex.exitTime;
 
                 if (!tpHit && !slHit && pos.getEntryTime().plus(MAX_HOLDING).isBefore(now)) {
                     if (!candles.isEmpty()) {
@@ -603,6 +582,87 @@ public class PositionOutcomeService {
         if (symbol.startsWith("IX.")) return stopPercentIndex;
         if (symbol.startsWith("CS.") || symbol.startsWith("CC.")) return stopPercentCommodity;
         return stopPercentCrypto;
+    }
+
+    private String assetClass(String symbol) {
+        if (symbol.startsWith("IX.")) return "INDEX";
+        if (symbol.startsWith("CS.") || symbol.startsWith("CC.")) return "COMMODITY";
+        return "CRYPTO";
+    }
+
+    /** Outcome of replaying candles against a position's TP/SL (with optional paper trailing). */
+    private static final class ReplayExit {
+        boolean tpHit;
+        boolean slHit;
+        BigDecimal exitPrice;
+        Instant exitTime;
+    }
+
+    /**
+     * Replays candles in chronological order to find the first TP/SL touch.
+     *
+     * <p>For paper positions (no live IG deal) with a known initial stop distance, the stop
+     * ratchets over time exactly like the manual "🪜 Trail:" guidance: once unrealised gain
+     * reaches +50% of the initial stop, the stop moves to breakeven and then trails that same
+     * distance below each new extreme. The ratchet only uses extremes from <em>prior</em> bars
+     * (the running stop is updated after the current bar's exit check), so there is no same-bar
+     * look-ahead and no retroactive stop-out. A trailed exit is reported as {@code slHit} but can
+     * close in profit (exitPrice ≥ entry) — that is a captured trailing win, not a loss.
+     *
+     * <p>Live IG positions (igDealId != null) skip trailing here; their real stop is managed in
+     * real time by {@link #checkTrailingStops()} / {@link IGTradingService#updateStopLevel}.
+     */
+    private ReplayExit replayCandles(PositionOutcome pos, List<CandleHistory> candles) {
+        ReplayExit r = new ReplayExit();
+        boolean isLong = Boolean.TRUE.equals(pos.getIsLong());
+        BigDecimal entry = pos.getEntryPrice();
+        BigDecimal tp = pos.getTpPrice();
+        BigDecimal stop = pos.getSlPrice();
+
+        boolean trail = paperTrailingEnabled
+                && pos.getIgDealId() == null
+                && pos.getStopPts() != null && pos.getStopPts() > 0;
+        long trailThresholdPts = trail ? Math.max(1L, pos.getStopPts() / 2) : 0;
+        BigDecimal trailThreshold = BigDecimal.valueOf(trailThresholdPts);
+        BigDecimal trailDistance = trailThreshold;   // trail distance = threshold (matches signal spec)
+        BigDecimal extreme = entry;                   // best price seen so far (high for long, low for short)
+
+        for (CandleHistory candle : candles) {
+            if (isLong) {
+                if (candle.getLow().compareTo(stop) <= 0) {
+                    r.slHit = true; r.exitPrice = stop; r.exitTime = candle.getCandleTime();
+                    return r;
+                }
+                if (candle.getHigh().compareTo(tp) >= 0) {
+                    r.tpHit = true; r.exitPrice = tp; r.exitTime = candle.getCandleTime();
+                    return r;
+                }
+                if (trail) {
+                    if (candle.getHigh().compareTo(extreme) > 0) extreme = candle.getHigh();
+                    if (extreme.subtract(entry).compareTo(trailThreshold) >= 0) {
+                        BigDecimal newStop = extreme.subtract(trailDistance);
+                        if (newStop.compareTo(stop) > 0) stop = newStop;   // ratchet up only
+                    }
+                }
+            } else {
+                if (candle.getHigh().compareTo(stop) >= 0) {
+                    r.slHit = true; r.exitPrice = stop; r.exitTime = candle.getCandleTime();
+                    return r;
+                }
+                if (candle.getLow().compareTo(tp) <= 0) {
+                    r.tpHit = true; r.exitPrice = tp; r.exitTime = candle.getCandleTime();
+                    return r;
+                }
+                if (trail) {
+                    if (candle.getLow().compareTo(extreme) < 0) extreme = candle.getLow();
+                    if (entry.subtract(extreme).compareTo(trailThreshold) >= 0) {
+                        BigDecimal newStop = extreme.add(trailDistance);
+                        if (newStop.compareTo(stop) < 0) stop = newStop;   // ratchet down only
+                    }
+                }
+            }
+        }
+        return r;
     }
 
     private double trendRewardRatio(String symbol) {

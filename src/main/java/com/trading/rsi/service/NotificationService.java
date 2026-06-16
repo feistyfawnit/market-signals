@@ -95,16 +95,14 @@ public class NotificationService {
             log.debug("No-trade mode active, suppressing partial/watch signal for {}", signal.getSymbol());
             return;
         }
-        if (!isFullSignal && isQuietHours()) {
-            log.debug("Quiet hours active, suppressing partial signal for {}", signal.getSymbol());
+        if (isQuietHours()) {
+            log.info("Quiet hours — suppressing {} signal for {}",
+                    isFullSignal ? "FULL" : "partial", signal.getSymbol());
             return;
         }
         if (!isFullSignal && suppressPartialsOnWeekends && isWeekend()) {
             log.debug("Weekend suppression active, skipping partial/watch signal for {}", signal.getSymbol());
             return;
-        }
-        if (isFullSignal && isQuietHours()) {
-            log.info("Quiet hours but FULL signal — sending for {}", signal.getSymbol());
         }
         if (isFullSignal && isWeekend()) {
             log.info("Weekend but FULL signal — sending for {}", signal.getSymbol());

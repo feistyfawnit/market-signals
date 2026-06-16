@@ -149,6 +149,20 @@ public class TrendDetectionService {
     @Value("${rsi.trend.crypto-volume-lookback:20}")
     private int cryptoVolumeLookback;
 
+    // Falling-knife / drawdown-velocity filter — suppresses TREND_BUY_DIP when price is dropping
+    // too steeply on the fast timeframe (a violent fall, not a healthy pullback). Added Jun 2026
+    // after SOL entered at 74.35 mid-knife (prior close 74.94, −0.79% in one 15m candle) while all
+    // trend filters passed, then kept falling toward the stop. Default ON, conservative threshold;
+    // warmup / disabled are pass-through. Tracked via filter_event_counts (DIP_FALLING_KNIFE).
+    @Value("${rsi.trend.dip-max-drop-filter-enabled:true}")
+    private boolean dipMaxDropFilterEnabled;
+
+    @Value("${rsi.trend.dip-max-drop-pct:0.6}")
+    private double dipMaxDropPct;
+
+    @Value("${rsi.trend.dip-max-drop-lookback:3}")
+    private int dipMaxDropLookback;
+
     private static final int MOMENTUM_LOOKBACK = 5;
     private static final double MOMENTUM_THRESHOLD_PCT = 1.0;
 
@@ -466,6 +480,12 @@ public class TrendDetectionService {
                     return;
                 }
 
+                // Falling-knife guard: skip steep, fast drops (drawdown velocity on the fast TF).
+                // A healthy dip is a shallow pullback; a violent multi-candle drop is a knife.
+                if (!isDipStabilized(instrument)) {
+                    return;
+                }
+
                 SignalLog.SignalType type = SignalLog.SignalType.TREND_BUY_DIP;
                 if (cooldownService.shouldAlert(instrument.getSymbol(), type)) {
                     int obCount = consecutiveOverbought.getOrDefault(instrument.getSymbol(), 0);
@@ -576,6 +596,37 @@ public class TrendDetectionService {
         log.debug("Momentum {} ({}): {}% over {} candles",
                 symbol, emaTrendTimeframe, String.format("%.2f", changePct), MOMENTUM_LOOKBACK);
         return changePct;
+    }
+
+    /**
+     * Falling-knife guard for TREND_BUY_DIP. Returns false (suppress) when price has fallen more
+     * than {@code dipMaxDropPct} over the last {@code dipMaxDropLookback} candles on the fast
+     * timeframe — i.e. the dip is a violent drop, not a healthy pullback. Disabled, warmup, and
+     * degenerate inputs are pass-through (true) — better to alert than to silently skip.
+     */
+    private boolean isDipStabilized(Instrument instrument) {
+        if (!dipMaxDropFilterEnabled || dipMaxDropPct <= 0) return true;
+        String fastTf = Arrays.stream(instrument.getTimeframes().split(","))
+                .map(String::trim)
+                .min(Comparator.comparingInt(this::timeframeToMinutes))
+                .orElse(null);
+        if (fastTf == null) return true;
+        String key = priceHistoryService.buildKey(instrument.getSymbol(), fastTf);
+        List<BigDecimal> history = priceHistoryService.getPriceHistory(key);
+        if (history == null || history.size() <= dipMaxDropLookback) return true; // warmup
+        BigDecimal current = history.get(history.size() - 1);
+        BigDecimal reference = history.get(history.size() - 1 - dipMaxDropLookback);
+        if (reference == null || reference.signum() == 0) return true;
+        double dropPct = current.subtract(reference)
+                .divide(reference, 8, RoundingMode.HALF_UP).doubleValue() * 100;
+        if (dropPct < -dipMaxDropPct) {
+            log.info("TREND_BUY_DIP suppressed for {} — price dropped {}% over last {} {} candles (falling knife, floor -{}%)",
+                    instrument.getSymbol(), String.format("%.2f", dropPct),
+                    dipMaxDropLookback, fastTf, dipMaxDropPct);
+            filterEventCounterService.record("DIP_FALLING_KNIFE", instrument.getSymbol());
+            return false;
+        }
+        return true;
     }
 
     /**

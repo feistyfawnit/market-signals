@@ -19,11 +19,11 @@ If you are reviewing or changing this repo, read in this order:
 
 - **Binance instruments**: `SOLUSDT` (full signals), `BTCUSDT`/`ETHUSDT` (enabled, no suppression), `BCHUSDT` (disabled)
   - Timeframes: `15m,1h,4h`
-- **IG indices**: DAX (TREND_BUY_DIP disabled — 0/9 wins, €901 cumulative losses); S&P 500 (TREND_BUY_DIP silent `notify:false` — recording P&L without Telegram noise); FTSE 100 (TREND_BUY_DIP disabled); Nasdaq 100 (disabled)
+- **IG indices**: DAX (TREND_BUY_DIP disabled — 0/9 wins, €901 cumulative losses); S&P 500 (TREND_BUY_DIP `notify:true` as of Jun 14 2026 — best forward performer 2/3 wins +€209; revisit if win rate <50% over next ~10 trades); FTSE 100 (TREND_BUY_DIP disabled); Nasdaq 100 (disabled)
   - Timeframes: `15m,30m,1h`
 - **IG commodities**: Gold (TREND_BUY_DIP disabled); Silver, Oil (disabled)
   - Timeframes: `15m,1h,4h`
-- **`trend-buy-dip-enabled` / `trend-buy-dip-notify` flags**: per-instrument in YAML, synced to DB on restart. YAML wins for these fields (unlike `enabled` which DB preserves). FTSE/Gold = disabled; S&P = silent recording.
+- **`trend-buy-dip-enabled` / `trend-buy-dip-notify` flags**: per-instrument in YAML, synced to DB on restart. YAML wins for these fields (unlike `enabled` which DB preserves). FTSE/Gold = disabled; S&P = notifying again (Jun 14 2026).
 
 ## Important Guardrails
 
@@ -44,6 +44,9 @@ If you are reviewing or changing this repo, read in this order:
 - **Apr 24 2026 P1**: `dipRsiThreshold` lowered 60→45; `ADX(14) > 20` filter on trend timeframe.
 - **Crypto volume confirmation** (`rsi.trend.crypto-volume-*`): TREND_BUY_DIP on CRYPTO requires trigger-candle 15m volume > 1.2× the 20-period mean. IG CFD volume is unreliable — filter is silently skipped for indices/commodities and during warmup. Source: LuxAlgo + r/algotrading.
 - **May 22 2026 chop filters**: EMA-slope filter (default **ON**, 0.05% over 5 candles) and dedupe tightening (RSI recovery requires threshold + 5; pctMove floor 0.5%) live; ATR-min-% filter staged **OFF**. Telegram alerts now include a `🪜 Trail:` line for actionable signals. Full detail: `docs/project-log.md#2026-05-22`.
+- **Jun 14 2026 paper trailing + concurrency cap**: trailing now actually executes for paper positions (no live IG deal). `PositionOutcomeService.replayCandles` ratchets the stop in the close-time candle replay — at +50%-of-stop → breakeven, then trails that distance below new extremes. Previously trailing only ran for `igDealId != null` (live auto-exec), so paper/confirmation trades were never trailed and the report's `Trail+` label was a misnomer for profitable 16h auto-closes (those are now `Hold+`). Genuine trailed exits are `slHit && profitable` → still labelled `Trail+`. Toggle via `rsi.demo.paper-trailing-enabled` (default true). New per-asset-class concurrency cap `rsi.demo.max-concurrent-per-asset-class` (default 2) blocks correlated SOL+BTC+ETH from all opening on one market-wide dip.
+- **Jun 17 2026 confirm-button regression fix**: `IGTradingService.checkRiskLimits()` was gating on an in-memory `openPositionCount` that only ever incremented (never decremented on close), so after 2 accepted IG deals the gate wedged shut and **every subsequent confirmation keyboard was silently suppressed** (the "button disappeared"). Now derives the live count from `positionOutcomeRepository.findByExitTimeIsNull()` filtered by `igDealId != null` — self-correcting. Also synced quiet-hours into `IGTradingService` and `NotificationService` (FULL signals no longer bypass quiet hours).
+- **Jun 17 2026 falling-knife filter** (`rsi.trend.dip-max-drop-*`): TREND_BUY_DIP is suppressed when price has dropped more than `dip-max-drop-pct` (default **0.6%**) over the last `dip-max-drop-lookback` (default 3) fast-TF candles — a violent fall, not a healthy pullback. Default **ON**. Added after SOL entered at 74.35 mid-knife (prior close 74.94) while ADX/EMA-slope/MACD all passed, then kept falling. Tracked via `filter_event_counts` (`DIP_FALLING_KNIFE`); loosen the % or disable if it over-suppresses good dips.
 
 ## Efficiency & Resource Guardrails
 

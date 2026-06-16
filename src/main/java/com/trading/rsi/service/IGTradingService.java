@@ -21,6 +21,8 @@ import reactor.core.publisher.Mono;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -77,8 +79,16 @@ public class IGTradingService {
     @Value("${rsi.demo.account-currency:EUR}")
     private String accountCurrency;
 
+    @Value("${rsi.quiet-hours.enabled:true}")
+    private boolean quietHoursEnabled;
+
+    @Value("${rsi.quiet-hours.start-hour:22}")
+    private int quietHoursStart;
+
+    @Value("${rsi.quiet-hours.end-hour:8}")
+    private int quietHoursEnd;
+
     private final AtomicBoolean killSwitchActive = new AtomicBoolean(false);
-    private int openPositionCount = 0;
     private BigDecimal dailyPnl = BigDecimal.ZERO;
     private Instant dailyPnlResetTime = Instant.now();
 
@@ -99,6 +109,14 @@ public class IGTradingService {
         if (signal.isSilent()) {
             log.info("Silent signal for {} {} — recording only, no confirmation prompt or trade",
                     signal.getSymbol(), signal.getSignalType());
+            return;
+        }
+
+        // Guard: quiet hours — no trade prompts or executions during sleep window.
+        // NotificationService and PositionOutcomeService already enforce this; this
+        // keeps IGTradingService in sync so confirmation keyboards don't fire at 3am.
+        if (isQuietHours()) {
+            log.info("Quiet hours — skipping trade action for {} {}", signal.getSymbol(), signal.getSignalType());
             return;
         }
 
@@ -161,10 +179,25 @@ public class IGTradingService {
         }
     }
 
+    private boolean isQuietHours() {
+        if (!quietHoursEnabled) return false;
+        int h = ZonedDateTime.now(ZoneOffset.UTC).getHour();
+        return quietHoursStart > quietHoursEnd
+                ? h >= quietHoursStart || h < quietHoursEnd
+                : h >= quietHoursStart && h < quietHoursEnd;
+    }
+
     private boolean checkRiskLimits() {
         resetDailyPnlIfNeeded();
 
-        if (openPositionCount >= maxConcurrentPositions) {
+        // Count live IG-linked positions from the DB rather than a manual counter. A manual
+        // counter that only ever incremented (never decremented on close) would permanently
+        // wedge this gate at the cap after a couple of trades, silently suppressing every
+        // future confirmation keyboard. Deriving from open positions is self-correcting.
+        long openIgPositions = positionOutcomeRepository.findByExitTimeIsNull().stream()
+                .filter(p -> p.getIgDealId() != null)
+                .count();
+        if (openIgPositions >= maxConcurrentPositions) {
             log.info("Max concurrent positions ({}) reached — skipping trade", maxConcurrentPositions);
             return false;
         }
@@ -305,7 +338,6 @@ public class IGTradingService {
             return;
         }
         if ("ACCEPTED".equals(confirm.getDealStatus())) {
-            openPositionCount++;
             telegramNotificationService.send("\u2705 Trade placed",
                     String.format("%s %s ACCEPTED%s (dealId %s)", signal.getSignalType(), signal.getSymbol(),
                             confirm.getLevel() != null ? " @ " + confirm.getLevel().stripTrailingZeros().toPlainString() : "",

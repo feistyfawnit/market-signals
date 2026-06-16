@@ -467,6 +467,61 @@ class TrendDetectionServiceTest {
         verify(eventPublisher, times(1)).publishEvent(any(SignalEvent.class));
     }
 
+    // ── Falling-knife / drawdown-velocity filter (Jun 2026) ──
+
+    @Test
+    void fallingKnifeFilter_steepDrop_suppressesDip() {
+        ReflectionTestUtils.setField(trendDetectionService, "dipMaxDropFilterEnabled", true);
+        ReflectionTestUtils.setField(trendDetectionService, "dipMaxDropPct", 0.6);
+        ReflectionTestUtils.setField(trendDetectionService, "dipMaxDropLookback", 3);
+        stubUptrend();
+
+        // Mirrors the live SOL 14:20 incident: 75.02 → 74.35 over 3 fast candles = -0.89% < -0.6%.
+        List<BigDecimal> fast = List.of(
+                new BigDecimal("75.02"), new BigDecimal("74.94"),
+                new BigDecimal("74.50"), new BigDecimal("74.35"));
+        when(priceHistoryService.buildKey("SOLUSDT", "15m")).thenReturn("SOLUSDT:15m");
+        when(priceHistoryService.getPriceHistory("SOLUSDT:15m")).thenReturn(fast);
+
+        Map<String, BigDecimal> dipRsi = Map.of(
+                "15m", new BigDecimal("42"),
+                "1h", new BigDecimal("65"),
+                "4h", new BigDecimal("72")
+        );
+
+        trendDetectionService.checkForTrendEntry(instrument, dipRsi, new BigDecimal("74.35"), triggerCandle);
+
+        verify(eventPublisher, never()).publishEvent(any(SignalEvent.class));
+        verify(filterEventCounterService).record(eq("DIP_FALLING_KNIFE"), eq("SOLUSDT"));
+    }
+
+    @Test
+    void fallingKnifeFilter_shallowPullback_allowsDip() {
+        ReflectionTestUtils.setField(trendDetectionService, "dipMaxDropFilterEnabled", true);
+        ReflectionTestUtils.setField(trendDetectionService, "dipMaxDropPct", 0.6);
+        ReflectionTestUtils.setField(trendDetectionService, "dipMaxDropLookback", 3);
+        stubUptrend();
+        when(cooldownService.shouldAlert(eq("SOLUSDT"), eq(SignalLog.SignalType.TREND_BUY_DIP)))
+                .thenReturn(true);
+
+        // Shallow pullback: 88.10 → 88.00 over 3 fast candles = -0.11%, well within -0.6% floor.
+        List<BigDecimal> fast = List.of(
+                new BigDecimal("88.10"), new BigDecimal("88.05"),
+                new BigDecimal("88.02"), new BigDecimal("88.00"));
+        when(priceHistoryService.buildKey("SOLUSDT", "15m")).thenReturn("SOLUSDT:15m");
+        when(priceHistoryService.getPriceHistory("SOLUSDT:15m")).thenReturn(fast);
+
+        Map<String, BigDecimal> dipRsi = Map.of(
+                "15m", new BigDecimal("42"),
+                "1h", new BigDecimal("65"),
+                "4h", new BigDecimal("72")
+        );
+
+        trendDetectionService.checkForTrendEntry(instrument, dipRsi, new BigDecimal("88.00"), triggerCandle);
+
+        verify(eventPublisher, times(1)).publishEvent(any(SignalEvent.class));
+    }
+
     // ── Verify first dip always fires (sanity) ──
 
     @Test

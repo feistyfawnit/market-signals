@@ -269,8 +269,11 @@ public class PositionReportService {
                         long dayClosed  = day.stream().filter(p -> p.getExitTime() != null).count();
                         long dayWins    = day.stream().filter(p -> p.getExitTime() != null
                                 && p.getPnlPct().compareTo(BigDecimal.ZERO) > 0).count();
+                        // A trailed exit is slHit but profitable — count only genuine losing stops,
+                        // otherwise a Trail+ row is double-counted as both a win and a loss.
                         long dayLosses  = day.stream().filter(p -> p.getExitTime() != null
-                                && Boolean.TRUE.equals(p.getSlHit())).count();
+                                && Boolean.TRUE.equals(p.getSlHit())
+                                && p.getPnlPct().compareTo(BigDecimal.ZERO) <= 0).count();
                         long dayExpired = dayClosed - dayWins - dayLosses;
                         double dayNet   = day.stream()
                                 .filter(p -> p.getExitTime() != null)
@@ -383,7 +386,12 @@ public class PositionReportService {
         boolean win = p.getPnlPct().compareTo(BigDecimal.ZERO) > 0;
         boolean tp = Boolean.TRUE.equals(p.getTpHit());
         boolean sl = Boolean.TRUE.equals(p.getSlHit());
-        String exitType = tp ? "TP" : sl ? "SL" : (win ? "Trail+" : "Expire");
+        // "Trail+" is reserved for a genuine trailing-stop capture: the stop was ratcheted into
+        // profit and then hit (slHit && profitable). A plain profitable max-hold auto-close
+        // (no TP, no SL) is "Hold+", NOT a trailing win. A non-profitable auto-close is "Expire".
+        String exitType = tp ? "TP"
+                : sl ? (win ? "Trail+" : "SL")
+                : (win ? "Hold+" : "Expire");
         String result = (win ? "✅" : "❌") + exitType;
         double estEurVal = estEur(p, riskEur);
 
