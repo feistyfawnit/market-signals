@@ -43,6 +43,14 @@ public class TelegramConfirmationService {
     @Value("${notifications.telegram.chat-ids:}")
     private String chatIds;
 
+    // How long to wait for a CONFIRM/SKIP button press before auto-skipping. Raised 120s→300s
+    // (Jun 20 2026): 2 min was too tight for a mobile push → unlock → decide flow, causing
+    // missed entries (a SOL dip that the sim caught +€32 was entered late manually for a ~€50
+    // loss). 5 min keeps the entry close enough to the signal price while giving real reaction
+    // time. Override with TRADING_CONFIRMATION_TIMEOUT_SECONDS.
+    @Value("${trading.confirmation.timeout-seconds:300}")
+    private long confirmationTimeoutSeconds;
+
     private final ConcurrentHashMap<String, Pending> pending = new ConcurrentHashMap<>();
     private volatile long lastUpdateId = -1;
 
@@ -99,8 +107,9 @@ public class TelegramConfirmationService {
         pending.put(key, p);
         try {
             sendInlineKeyboard(symbol, direction, price, key, p);
-            log.info("Awaiting Telegram confirmation for {} {} @ {} (key={})", direction, symbol, price, key);
-            return p.future.get(120, TimeUnit.SECONDS);
+            log.info("Awaiting Telegram confirmation for {} {} @ {} (key={}, timeout={}s)",
+                    direction, symbol, price, key, confirmationTimeoutSeconds);
+            return p.future.get(confirmationTimeoutSeconds, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             log.info("Confirmation timed out for {} {} — auto-skipping", direction, symbol);
             return false;
@@ -126,7 +135,7 @@ public class TelegramConfirmationService {
         Pending p = new Pending(new CompletableFuture<>());
         pending.put(key, p);
         sendInlineKeyboard(symbol, direction, price, key, p);
-        CompletableFuture.delayedExecutor(120, TimeUnit.SECONDS)
+        CompletableFuture.delayedExecutor(confirmationTimeoutSeconds, TimeUnit.SECONDS)
                 .execute(() -> { pending.remove(key); p.future.completeExceptionally(new TimeoutException("test expired")); });
         log.info("Test confirmation keyboard sent for {} {} @ {}", direction, symbol, price);
     }

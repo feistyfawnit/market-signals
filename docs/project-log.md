@@ -6,6 +6,32 @@
 
 ---
 
+## 2026-06-20 — Dip-signal drought fix + trailing-stop verification
+
+### Trigger
+User reported a week-long TREND_BUY_DIP drought ("none for a week") after the Jun 17–18 changes, and that they had never seen trailing stops working. Asked whether the IG API budget covers trailing.
+
+### Root cause — falling-knife filter
+The `rsi.trend.dip-max-drop-*` filter (added Jun 17, loosened 0.6%→2.0% Jun 18) was still the dominant suppressor. It evaluates drawdown velocity on the **same fast timeframe whose RSI pullback defines a `TREND_BUY_DIP`** (15m for crypto), so it structurally fights the signal it is meant to guard — a healthy dip that drops 15m RSI below threshold over 45 min frequently moves >2% on SOL.
+
+The other Jun 17 change — `NotificationService` no longer letting FULL signals bypass quiet hours — does **not** affect `TREND_BUY_DIP`: those signals are built with `timeframesAligned = consecutiveOverbought (=0 during a dip)`, so `isFullSignal=false` and they were already quiet-hours-suppressed before. So the regression is entirely the falling-knife filter.
+
+### Fix
+`dip-max-drop-filter-enabled` default flipped `true → false` in `application.yml` (env override `TREND_DIP_MAX_DROP_FILTER_ENABLED` retained). Aligned with the user's economics: more signals + working trailing stops, where one runner pays for several small losers. Code/config left intact for re-enable at a higher pct (3-4%) if mid-knife entries prove a measurable drag.
+
+### Trailing stops — verified working, but invisible in paper mode
+- **Paper trailing** (`PositionOutcomeService.replayCandles`, default ON) works and is unit-tested (`checkAndClosePosition_paperTrailing_capturesProfitOnPullback`): ratchets to breakeven at +50%-of-stop, then trails that distance below new highs. Surfaces only as the `Trail+` label in the P&L report — **no push notification**.
+- **Live IG trailing** (`checkTrailingStops` every 15 min → `IGTradingService.updateStopLevel` → `PUT /positions/otc/{dealId}`, with the "🔒 stop trailed" Telegram) only acts on positions whose `igDealId != null`. `igDealId` is **only** attached inside `executeTrade()`, which runs **only when `trading.auto-execution.enabled=true`**. In confirmation-only/paper mode no `igDealId` is ever set → live trailing finds zero candidates → never fires.
+- Net: trailing was functioning (paper), but silent — and the signal drought meant no positions were opening for it to act on. Both explain "I've not seen it working."
+
+### API budget — ample
+Trailing uses IG **dealing** endpoints (`PUT`/`GET /positions/otc`), which count against the per-account request rate (30/min) and non-trading rate (60/min) — **NOT** the 10,000/week **historical-data** allowance (only `/prices/...` candle fetches consume that). `checkTrailingStops` runs every 15 min and issues a PUT only when a stop actually ratchets; with ≤2 open positions that is a handful of calls/hour. In confirmation-only mode, live trailing makes **zero** IG calls. No budget concern.
+
+### Open question for user
+Whether to add a low-noise Telegram push when a *paper* trailed stop captures a profitable exit (one message per captured winner — not per stop move, which was the noisy variant deferred May 22), so trailing is observable without going live on IG auto-execution.
+
+---
+
 ## 2026-05-22 — SOL chop review: trailing-stop guidance + chop filters + dedupe tightening
 
 ### Trigger

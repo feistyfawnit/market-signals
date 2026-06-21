@@ -178,9 +178,9 @@ public class PositionOutcomeService {
                 || signal.getSignalType() == SignalLog.SignalType.TREND_SELL_RALLY;
 
         BigDecimal entry = signal.getCurrentPrice();
-        long stopPts = computeStopPoints(entry, signal.getSymbol(), isTrend);
-        double rr = isTrend ? trendRewardRatio(signal.getSymbol()) : 2.0;
-        long limitPts = Math.max(Math.round(stopPts * rr), stopPts + 1);
+        long[] risk = computeRiskPoints(entry, signal.getSymbol(), isTrend);
+        long stopPts = risk[0];
+        long limitPts = risk[1];
 
         BigDecimal tpPrice;
         BigDecimal slPrice;
@@ -669,6 +669,19 @@ public class PositionOutcomeService {
         if (symbol.startsWith("IX.")) return trendRrIndex;
         if (symbol.startsWith("CS.") || symbol.startsWith("CC.")) return trendRrCommodity;
         return trendRrCrypto;
+    }
+
+    /**
+     * Stop and limit distances (in price points) for a signal, using the same risk model as
+     * position opening: {@code [stopPts, limitPts]}. Exposed so {@link IGTradingService} can place
+     * live IG deals with the identical protective stop/limit instead of opening naked — keeping a
+     * single source of truth for sizing across the paper sim and the real order.
+     */
+    public long[] computeRiskPoints(BigDecimal entry, String symbol, boolean isTrend) {
+        long stopPts = computeStopPoints(entry, symbol, isTrend);
+        double rr = isTrend ? trendRewardRatio(symbol) : 2.0;
+        long limitPts = Math.max(Math.round(stopPts * rr), stopPts + 1);
+        return new long[]{stopPts, limitPts};
     }
 
     /**

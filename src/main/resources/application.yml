@@ -116,7 +116,11 @@ rsi:
     # threshold so only true flat-chop is filtered.
     ema-slope-filter-enabled: ${TREND_EMA_SLOPE_FILTER_ENABLED:true}
     ema-slope-lookback: ${TREND_EMA_SLOPE_LOOKBACK:5}
-    ema-slope-min-pct: ${TREND_EMA_SLOPE_MIN_PCT:0.05}
+    # Loosened 0.05%→0.03% (Jun 20 2026): the suppression retrospective showed SOL candles
+    # blocked by EMA_SLOPE_FLAT rose +0.57% next-day on average (missed wins, marginal verdict),
+    # while ADX_RANGING was correctly catching the genuine falls. 0.03% still filters dead-flat
+    # chop but lets gently-rising dips through. Revisit if SOL win rate drops.
+    ema-slope-min-pct: ${TREND_EMA_SLOPE_MIN_PCT:0.03}
     # ATR / price minimum — blocks TREND_BUY_DIP when 1h ATR is too small relative to price
     # (low-volatility range). Disabled by default — needs calibration against position_outcomes
     # before enabling. 0.4% is a starting point for crypto; indices/commodities typically lower.
@@ -131,11 +135,14 @@ rsi:
     # Falling-knife / drawdown-velocity guard (Jun 2026) — blocks TREND_BUY_DIP when price has
     # dropped more than dip-max-drop-pct over the last dip-max-drop-lookback fast-TF candles, i.e.
     # a violent fall rather than a healthy pullback. Added after SOL entered at 74.35 mid-knife
-    # (prior close 74.94) while all trend filters passed, then kept falling. Default ON.
-    # Floor raised 0.6%→2.0% (Jun 17 2026): 0.6% over 45min overlapped with normal crypto
-    # pullbacks and suppressed most legitimate dips. 2.0% only catches genuine crashes — with
-    # trailing stops, missing real dips costs more than eating the occasional mid-knife entry.
-    dip-max-drop-filter-enabled: ${TREND_DIP_MAX_DROP_FILTER_ENABLED:true}
+    # (prior close 74.94) while all trend filters passed, then kept falling.
+    # DISABLED by default (Jun 20 2026): even at 2.0% this sits on the SAME fast timeframe whose
+    # RSI pullback *defines* a dip, so it structurally fights the signal it guards — it caused a
+    # week-long TREND_BUY_DIP drought (0.6%→2.0% on Jun 18 was not enough). Per the trailing-stop
+    # economics (one runner pays for several small losers), missing real dips costs more than the
+    # occasional mid-knife entry. Re-enable with a higher pct (e.g. 3-4%) only if knife entries
+    # become a measurable drag in position_outcomes.
+    dip-max-drop-filter-enabled: ${TREND_DIP_MAX_DROP_FILTER_ENABLED:false}
     dip-max-drop-pct: ${TREND_DIP_MAX_DROP_PCT:2.0}
     dip-max-drop-lookback: ${TREND_DIP_MAX_DROP_LOOKBACK:3}
 

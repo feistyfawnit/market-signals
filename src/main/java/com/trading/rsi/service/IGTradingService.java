@@ -12,7 +12,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -51,6 +53,13 @@ public class IGTradingService {
     private final PositionOutcomeRepository positionOutcomeRepository;
     private final TelegramConfirmationService telegramConfirmationService;
     private final TelegramNotificationService telegramNotificationService;
+
+    // Reuse the single risk-sizing model so live IG deals open with the SAME stop/limit distance
+    // as the paper sim. @Lazy breaks the PositionOutcomeService↔IGTradingService construction cycle
+    // (PositionOutcomeService already injects this bean). Field injection is intentional here.
+    @Autowired
+    @Lazy
+    private PositionOutcomeService positionOutcomeService;
 
     @Value("${trading.auto-execution.enabled:false}")
     private boolean autoExecutionEnabled;
@@ -259,9 +268,21 @@ public class IGTradingService {
         String currencyCode = resolveCurrencyCode(md);
         String size = resolveDealSize(md);
 
-        DealRequest dealRequest = new DealRequest(epic, expiry, direction, size, "MARKET", currencyCode, true, false);
-        log.info("Placing IG deal: epic={} expiry={} dir={} size={} ccy={}",
-                epic, expiry, direction, size, currencyCode);
+        // Open the deal WITH a protective stop + limit (in points), using the same risk model as
+        // the paper sim. Without this the IG position is naked and the trailing job has no stop to
+        // ratchet until the trade is already in profit. Clamp up to IG's reported minimum distance
+        // so the deal is not rejected for a too-tight stop on low-priced markets.
+        boolean isTrend = signal.getSignalType() == SignalLog.SignalType.TREND_BUY_DIP
+                || signal.getSignalType() == SignalLog.SignalType.TREND_SELL_RALLY;
+        long[] risk = positionOutcomeService.computeRiskPoints(signal.getCurrentPrice(), signal.getSymbol(), isTrend);
+        BigDecimal minDist = minStopOrLimitDistance(md);
+        BigDecimal stopDistance = BigDecimal.valueOf(risk[0]).max(minDist);
+        BigDecimal limitDistance = BigDecimal.valueOf(risk[1]).max(minDist);
+
+        DealRequest dealRequest = new DealRequest(epic, expiry, direction, size, "MARKET", currencyCode,
+                true, false, stopDistance, limitDistance);
+        log.info("Placing IG deal: epic={} expiry={} dir={} size={} ccy={} stopDist={} limitDist={}",
+                epic, expiry, direction, size, currencyCode, stopDistance, limitDistance);
 
         return authService.getClient().post()
                 .uri("/positions/otc")
@@ -315,6 +336,20 @@ public class IGTradingService {
                 : BigDecimal.ONE;
         BigDecimal size = min.multiply(BigDecimal.valueOf(minSizeMultiplier));
         return size.stripTrailingZeros().toPlainString();
+    }
+
+    /**
+     * IG's minimum normal stop/limit distance (in points) for the market, or ZERO when the
+     * dealing rules don't report one. Used to clamp our computed stop/limit up so the deal is
+     * not rejected for being too tight on low-priced instruments.
+     */
+    private BigDecimal minStopOrLimitDistance(MarketDetailsResponse md) {
+        if (md != null && md.getDealingRules() != null
+                && md.getDealingRules().getMinNormalStopOrLimitDistance() != null
+                && md.getDealingRules().getMinNormalStopOrLimitDistance().getValue() != null) {
+            return md.getDealingRules().getMinNormalStopOrLimitDistance().getValue();
+        }
+        return BigDecimal.ZERO;
     }
 
     private Mono<Void> confirmDeal(String dealRef, IGAuthService.IGSession session, RsiSignal signal) {
@@ -462,6 +497,7 @@ public class IGTradingService {
     }
 
     @Data
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private static class DealRequest {
         private final String epic;
         private final String expiry;
@@ -471,6 +507,9 @@ public class IGTradingService {
         private final String currencyCode;
         private final boolean forceOpen;
         private final boolean guaranteedStop;
+        // Protective stop/limit distance in points (omitted from JSON when null).
+        private final BigDecimal stopDistance;
+        private final BigDecimal limitDistance;
     }
 
     @Data
@@ -493,10 +532,17 @@ public class IGTradingService {
     @Data
     private static class MarketDealingRules {
         private MinDealSize minDealSize;
+        private DealingRuleValue minNormalStopOrLimitDistance;
     }
 
     @Data
     private static class MinDealSize {
+        private BigDecimal value;
+    }
+
+    @Data
+    private static class DealingRuleValue {
+        private String unit;
         private BigDecimal value;
     }
 
