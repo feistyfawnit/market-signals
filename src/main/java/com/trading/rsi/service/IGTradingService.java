@@ -85,6 +85,13 @@ public class IGTradingService {
     @Value("${trading.auto-execution.min-size-multiplier:2}")
     private double minSizeMultiplier;
 
+    // A protective stop must clear the live bid/offer spread or the position is stopped out the
+    // instant it opens (a BUY fills at the offer but is valued at the bid). On the demo Solana
+    // feed the spread is ~2.2pt while our computed stop was 2pt — guaranteed insta-stop. Floor the
+    // stop/limit distance at spread × this multiplier so there is genuine room beyond the spread.
+    @Value("${trading.auto-execution.spread-stop-multiplier:2.0}")
+    private double spreadStopMultiplier;
+
     @Value("${rsi.demo.account-currency:EUR}")
     private String accountCurrency;
 
@@ -275,14 +282,25 @@ public class IGTradingService {
         boolean isTrend = signal.getSignalType() == SignalLog.SignalType.TREND_BUY_DIP
                 || signal.getSignalType() == SignalLog.SignalType.TREND_SELL_RALLY;
         long[] risk = positionOutcomeService.computeRiskPoints(signal.getCurrentPrice(), signal.getSymbol(), isTrend);
-        BigDecimal minDist = minStopOrLimitDistance(md);
-        BigDecimal stopDistance = BigDecimal.valueOf(risk[0]).max(minDist);
-        BigDecimal limitDistance = BigDecimal.valueOf(risk[1]).max(minDist);
+        double rr = risk[0] > 0 ? (double) risk[1] / risk[0] : 2.0;
+
+        // The stop must clear BOTH IG's reported minimum distance AND the live bid/offer spread
+        // (× multiplier) — otherwise the position is stopped out the instant it opens.
+        BigDecimal spreadFloor = marketSpread(md).multiply(BigDecimal.valueOf(spreadStopMultiplier));
+        BigDecimal minDist = minStopOrLimitDistance(md).max(spreadFloor);
+        BigDecimal step = minStepDistance(md);
+        BigDecimal stopDistance = roundUpToStep(BigDecimal.valueOf(risk[0]).max(minDist), step);
+        // Keep the reward:risk ratio after any widening of the stop, and never let the limit
+        // fall below the stop or IG's minimum distance.
+        BigDecimal limitDistance = roundUpToStep(
+                stopDistance.multiply(BigDecimal.valueOf(rr))
+                        .max(BigDecimal.valueOf(risk[1]))
+                        .max(minDist), step);
 
         DealRequest dealRequest = new DealRequest(epic, expiry, direction, size, "MARKET", currencyCode,
                 true, false, stopDistance, limitDistance);
-        log.info("Placing IG deal: epic={} expiry={} dir={} size={} ccy={} stopDist={} limitDist={}",
-                epic, expiry, direction, size, currencyCode, stopDistance, limitDistance);
+        log.info("Placing IG deal: epic={} expiry={} dir={} size={} ccy={} stopDist={} limitDist={} (spread={} minDist={})",
+                epic, expiry, direction, size, currencyCode, stopDistance, limitDistance, marketSpread(md), minDist);
 
         return authService.getClient().post()
                 .uri("/positions/otc")
@@ -350,6 +368,36 @@ public class IGTradingService {
             return md.getDealingRules().getMinNormalStopOrLimitDistance().getValue();
         }
         return BigDecimal.ZERO;
+    }
+
+    /** Live bid/offer spread in points, or ZERO when the snapshot is unavailable. */
+    private BigDecimal marketSpread(MarketDetailsResponse md) {
+        if (md != null && md.getSnapshot() != null
+                && md.getSnapshot().getBid() != null && md.getSnapshot().getOffer() != null) {
+            BigDecimal spread = md.getSnapshot().getOffer().subtract(md.getSnapshot().getBid());
+            return spread.compareTo(BigDecimal.ZERO) > 0 ? spread : BigDecimal.ZERO;
+        }
+        return BigDecimal.ZERO;
+    }
+
+    /** IG's minimum step distance for stops/limits (points), defaulting to 1 when unreported. */
+    private BigDecimal minStepDistance(MarketDetailsResponse md) {
+        if (md != null && md.getDealingRules() != null
+                && md.getDealingRules().getMinStepDistance() != null
+                && md.getDealingRules().getMinStepDistance().getValue() != null
+                && md.getDealingRules().getMinStepDistance().getValue().compareTo(BigDecimal.ZERO) > 0) {
+            return md.getDealingRules().getMinStepDistance().getValue();
+        }
+        return BigDecimal.ONE;
+    }
+
+    /** Rounds a distance UP to the nearest multiple of the market's step distance. */
+    private BigDecimal roundUpToStep(BigDecimal value, BigDecimal step) {
+        if (step == null || step.compareTo(BigDecimal.ZERO) <= 0) {
+            return value;
+        }
+        BigDecimal steps = value.divide(step, 0, java.math.RoundingMode.CEILING);
+        return steps.multiply(step);
     }
 
     private Mono<Void> confirmDeal(String dealRef, IGAuthService.IGSession session, RsiSignal signal) {
@@ -470,8 +518,11 @@ public class IGTradingService {
         IGAuthService.IGSession session = authService.getSession();
         if (session == null) return Optional.empty();
         try {
+            // GET /positions (v2) lists open positions — NOT /positions/otc, which only supports
+            // POST/PUT/DELETE and returns 404 on GET. The response shape is identical
+            // ({positions:[{position, market}]}) so OtcPositionsResponse still maps cleanly.
             OtcPositionsResponse response = authService.getClient().get()
-                    .uri("/positions/otc")
+                    .uri("/positions")
                     .header("X-IG-API-KEY", authService.getApiKey())
                     .header("CST", session.getCst())
                     .header("X-SECURITY-TOKEN", session.getSecurityToken())
@@ -516,6 +567,13 @@ public class IGTradingService {
     private static class MarketDetailsResponse {
         private MarketInstrument instrument;
         private MarketDealingRules dealingRules;
+        private MarketSnapshot snapshot;
+    }
+
+    @Data
+    private static class MarketSnapshot {
+        private BigDecimal bid;
+        private BigDecimal offer;
     }
 
     @Data
@@ -533,6 +591,7 @@ public class IGTradingService {
     private static class MarketDealingRules {
         private MinDealSize minDealSize;
         private DealingRuleValue minNormalStopOrLimitDistance;
+        private DealingRuleValue minStepDistance;
     }
 
     @Data

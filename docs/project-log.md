@@ -6,6 +6,33 @@
 
 ---
 
+## 2026-06-21 — Live demo trade insta-stop-out fix (stop inside the spread)
+
+### Trigger
+First live auto-exec after enabling `TRADING_AUTO_EXECUTION_ENABLED`/`TRADING_CONFIRMATION_ENABLED`. User confirmed a SOL signal, got "✅ Trade placed ACCEPTED", but saw **no open position** in the IG demo web platform.
+
+### What actually happened
+The trade *did* fire — and was stopped out **1 second after opening**. IG activity/transaction history:
+- Bot deal `…MJP5KAZ`: opened **74.59**, closed **72.59** (exactly the 2pt stop), size +8, **−€16**, open→close in 1s.
+- A second WEB-channel deal (size +50) the same minute: 74.49 → 72.49, **−€100**, same instant stop.
+
+### Root cause — stop distance < bid/offer spread
+SOL demo market snapshot: **bid 72.28 / offer 74.48 → spread 2.2pt**. A BUY fills at the offer but is valued at the bid, so the position opens ~2.2pt underwater. Our computed stop was **2pt** (the `entry×0.002` floor; ATR unavailable), i.e. *inside* the spread → guaranteed immediate stop-out. IG's reported `minNormalStopOrLimitDistance` is only 1pt, so it gave no protection.
+
+### Fix (`IGTradingService.placeDeal`)
+- New floor: stop/limit distance must clear `marketSpread × spread-stop-multiplier` (default **2.0**, `TRADING_AUTO_EXECUTION_SPREAD_STOP_MULTIPLIER`). Pulled from the v3 `/markets/{epic}` snapshot bid/offer (now mapped in the DTO).
+- Reward:risk preserved after widening (`limit = stop × rr`, never below stop or IG min).
+- Distances rounded **up** to the market `minStepDistance`.
+- For SOL this yields stop 5pt / limit 10pt (was 2/4) — clears the 2.2pt spread with real room.
+
+### Secondary bug — positions GET 404
+`fetchOpenIgDealIds()` called `GET /positions/otc`, which only supports POST/PUT/DELETE → **404 every cycle** (`Failed to fetch open IG positions: 404`). Changed to `GET /positions` (v2); identical response shape so parsing is unchanged. This had blocked the exit/trailing job from ever seeing live positions.
+
+### Account note
+Login `ivanterry` has 3 demo accounts; preferred/active = **Z68KTE (Spread bet)** — the one the deals land on and the dropdown to view in the web platform.
+
+---
+
 ## 2026-06-20 — Dip-signal drought fix + trailing-stop verification
 
 ### Trigger
