@@ -378,3 +378,4 @@ watchlist:
       # Jun 23 2026: trend detection on in SILENT mode (notify:false). Low-confidence (−1.00R backtest).
       trend-buy-dip-enabled: true
       trend-buy-dip-notify: false
+      rsi-signals-enabled: false  # Keep Silver silent-only; trend dips tracked without RSI alert noise
