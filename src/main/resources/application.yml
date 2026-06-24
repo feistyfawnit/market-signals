@@ -73,6 +73,17 @@ rsi:
     trend-rr-crypto: ${TREND_RR_CRYPTO:2.0}
     trend-rr-index: ${TREND_RR_INDEX:3.0}
     trend-rr-commodity: ${TREND_RR_COMMODITY:3.0}
+    # Trailing-stop geometry (paper replay, live IG ratchet, and the Telegram "🪜 Trail:" guidance
+    # all read these). Multipliers are of the INITIAL stop distance (stopPts).
+    #   activation-mult: move stop to breakeven once unrealised gain reaches this × stop
+    #   distance-mult:   trail this × stop below new extremes thereafter
+    # Jun 23 2026: loosened from a hardcoded 0.5/0.5 to 1.0/1.0. At 0.5 the stop snapped to
+    # breakeven at +0.5R and trailed only half a stop away, so in low-vol (tight ATR) regimes
+    # winners were exited at ~breakeven on the first wiggle (the Jun 20-22 +€10/€17/€32 scratches).
+    # 1.0/1.0 gives the trade a full stop of room before breakeven and trails a full stop wide,
+    # letting runners run (more give-back risk, accepted per the "one runner pays for losers" model).
+    trail-activation-mult: ${TRAIL_ACTIVATION_MULT:1.0}
+    trail-distance-mult: ${TRAIL_DISTANCE_MULT:1.0}
     
   trend:
     ema-period: ${TREND_EMA_PERIOD:20}
@@ -92,7 +103,7 @@ rsi:
     # Set enabled=false to disable; threshold=0 also effectively disables.
     adx-filter-enabled: ${TREND_ADX_FILTER_ENABLED:true}
     adx-period: ${TREND_ADX_PERIOD:14}
-    adx-threshold: ${TREND_ADX_THRESHOLD:15.0}     # lowered 20→15 May 2026 — ADX oscillates around 20 in trend; 15 lets mildly-trending markets through
+    adx-threshold: ${TREND_ADX_THRESHOLD:12.0}     # lowered 20→15 May 2026; 15→12 Jun 23 2026 — ADX_RANGING was the most-firing 'marginal' suppressor (ETH 1410 supp, +0.73% next-day = missed wins). 12 releases more signals per user's "prefer more signals, I'll decide" preference.
     # MACD histogram confirmation for TREND_BUY_DIP (Appel 1979).
     # Blocks entry when histogram is not bullish AND not rising on the trend timeframe.
     # Set enabled=false to disable; fast/slow/signal periods mirror the classic 12/26/9.
@@ -202,6 +213,10 @@ trading:
     # reports 4.0 but rejects below 7). Deal size = reportedMin × this buffer. ×2 verified
     # to clear SOL/BTC/ETH on the demo. Raise if MINIMUM_ORDER_SIZE_ERROR reappears.
     min-size-multiplier: ${TRADING_MIN_SIZE_MULTIPLIER:2}
+    # Spread guard. Skip the live IG trade when bid/offer spread is > X% of the planned stop.
+    # Prevents low-edge entries where the spread alone consumes the risk budget (common at
+    # Sunday open or in thin markets). Set to 0 to disable; 25.0 = 25% of stop.
+    max-spread-pct-of-stop: ${TRADING_MAX_SPREAD_PCT_OF_STOP:25.0}
   # When true, sends Telegram CONFIRM/SKIP keyboard on every actionable signal
   # WITHOUT executing real IG trades. Use this for paper trading with manual
   # confirmation — the buy button appears, positions are tracked, but no money moves.
@@ -286,7 +301,11 @@ watchlist:
       oversold-threshold: 30
       overbought-threshold: 70
       timeframes: "15m,30m,1h"
-      trend-buy-dip-enabled: false  # 0/9 wins, €901 cumulative losses — no edge confirmed
+      # Jun 23 2026: re-enabled detection in SILENT mode (notify:false) to gather post-chop-filter
+      # forward data — same pattern that rehabilitated S&P (the 0/9 / €901 record predates the May
+      # ADX-12 / EMA-slope / MACD filters). No live alerts; tracked in position_outcomes only.
+      trend-buy-dip-enabled: true
+      trend-buy-dip-notify: false
     - symbol: IX.D.FTSE.DAILY.IP
       name: FTSE 100
       source: IG
@@ -322,7 +341,10 @@ watchlist:
       oversold-threshold: 30
       overbought-threshold: 70
       timeframes: "15m,1h,4h"
-      trend-buy-dip-enabled: false  # −1.00R backtest (6 signals, 0% TP, 100% SL)
+      # Jun 23 2026: re-enabled trend detection in SILENT mode (notify:false) for forward visibility.
+      # Low-confidence (−1.00R backtest, 6 signals, 0% TP) — silent so it adds no alert noise.
+      trend-buy-dip-enabled: true
+      trend-buy-dip-notify: false
       rsi-signals-enabled: false  # May 2026: −1.00R on OVERSOLD/PARTIAL_OVERSOLD too; price data still feeds CrossAssetCorrelationService
     # Oil: FSD (forward) epic expired — switched to USS (cash/rolling) contract
     - symbol: CC.D.LCO.USS.IP
@@ -348,9 +370,11 @@ watchlist:
     - symbol: CS.D.USCSI.TODAY.IP
       name: Silver
       source: IG
-      enabled: false
+      enabled: true   # Jun 23 2026: re-enabled for visibility (adds ~1k IG points/week — see budget note in AGENTS.md)
       type: COMMODITY
       oversold-threshold: 30
       overbought-threshold: 70
       timeframes: "15m,1h,4h"
-      trend-buy-dip-enabled: false  # −1.00R backtest (3 signals, 0% TP, 100% SL)
+      # Jun 23 2026: trend detection on in SILENT mode (notify:false). Low-confidence (−1.00R backtest).
+      trend-buy-dip-enabled: true
+      trend-buy-dip-notify: false

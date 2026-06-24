@@ -6,6 +6,51 @@
 
 ---
 
+## 2026-06-23 — Signal rundown: trailing loosened, ADX 15→12, DAX/Gold/Silver re-enabled (silent)
+
+### Trigger
+User review: "few winners, needed to trail manually for the few I had... prefer a few more signals than less, I can decide to bet or not. Haven't seen DAX nor S&P in a long time. Nor Gold nor Silver."
+
+### Rundown findings (live report, 27 closed, 52% win, +€937 R-est.)
+- Win rate is fine but **recent batch is mostly scratches**: since Jun 16 only **one clean TP** (BTC +€202, Jun 20). The Jun 20-22 trades were tiny `Trail+` exits (+€10/€17/€32/€103) or `Expire`. The €200 TPs clustered Jun 8-15 then dried up.
+- **Trailing was the culprit for "few winners + manual trailing".** The hardcoded geometry moved the stop to breakeven at just **+50% of stop** then trailed **half a stop** below highs. With current low crypto vol (tight ATR stops) this snapped out on the first wiggle near breakeven — winners never ran.
+- **Absences explained**: DAX `trend-buy-dip-enabled:false` (0/9, €901 — but predates May filters); Gold `trend-buy-dip` + `rsi-signals` both false → zero signals; Silver `enabled:false` → no data; S&P actually **on** (notify:true) and was the best single win (+€301 Jun 9), just quiet since Jun 16.
+- **Suppression retrospective** showed heavy 'marginal' filtering (ETH ADX_RANGING 1410 supp, +0.73% next-day = missed wins; SOL EMA_SLOPE +0.69%). MACD_HISTOGRAM consistently ✅ Correct — kept.
+
+### Changes (user approved all four)
+1. **Trailing loosened + made configurable**: new `rsi.demo.trail-activation-mult` / `trail-distance-mult`, defaulted **1.0 / 1.0** (was hardcoded 0.5/0.5). Wired in `PositionOutcomeService.tryTrailStop` (live IG), `replayCandles` (paper), and the `NotificationService` `🪜 Trail:` guidance so all three stay in sync. Full stop of room before breakeven, trails a full stop wide — lets runners run (accepted give-back risk per "one runner pays for losers").
+2. **`adx-threshold` 15 → 12** — releases more signals; ADX_RANGING was the top marginal suppressor.
+3. **DAX + Gold + Silver TREND_BUY_DIP re-enabled SILENT** (`trend-buy-dip-enabled:true`, `notify:false`) — same forward-data pattern that rehabilitated S&P. No alert noise; tracked in `position_outcomes`.
+
+### Operational notes
+- **Silver needs a one-time runtime toggle**: `DataInitializer` preserves the DB `enabled` flag, so YAML `enabled:true` won't flip the existing disabled Silver row. After deploy run `curl -X POST http://localhost:8080/api/instruments/11/toggle` on EC2. DAX (5)/Gold (8)/S&P (7) already enabled — their YAML trend flags sync automatically.
+- **IG budget**: adding Silver takes the enabled IG set 5→6 (~5,300 → ~6,300 points/week), still under the 10,000 cap.
+- `mvn -o compile` clean. No test gate before deploy — pushed knowingly.
+
+---
+
+## 2026-06-23 — Spread tracking + max-spread guard (user: "should we consider the spread?")
+
+### Trigger
+User noticed that after some placements they had to wait a long time or "get lucky" for the current value to reach their buy price. Asked whether weekend spreads are worse and whether we should consider spread.
+
+### Response
+- Spread is **already accounted for in live IG deals**: stop/limit distances are floored at `live spread × 2.0` (`trading.auto-execution.spread-stop-multiplier:2.0`), added after the Jun 21 insta-stop-out incident where a 2pt stop was inside a 2.2pt SOL spread.
+- **Paper simulation does not model spread**, so the P&L report can be slightly optimistic vs. live execution.
+- **IG spreads are indeed wider** at Sunday 22:00 UTC reopen, Friday evening, and thin macro events.
+
+### Changes
+1. **Added `entry_spread_pts` / `entry_spread_pct` columns** to `position_outcomes`.
+2. **Capture live IG snapshot spread at `IGTradingService.placeDeal`** (whether the deal proceeds or is skipped), so we can measure how much of the stop the spread consumed.
+3. **Added spread-as-%-of-stop rejection guard**: `trading.auto-execution.max-spread-pct-of-stop:25.0` — if bid/offer spread is >25% of the planned stop, the live trade is skipped and a Telegram warning is sent. This catches low-edge Sunday/thin-market entries.
+4. **Exposed spread in P&L report** (`Sprd` column) and in the CSV export (`spread_pts`, `spread_pct`).
+
+### Config levers
+- `TRADING_AUTO_EXECUTION_SPREAD_STOP_MULTIPLIER` (default 2.0) — how many multiples of the spread the stop must clear.
+- `TRADING_MAX_SPREAD_PCT_OF_STOP` (default 25.0) — reject if spread > this % of stop; set to 0 to disable.
+
+---
+
 ## 2026-06-21 — Live demo trade insta-stop-out fix (stop inside the spread)
 
 ### Trigger

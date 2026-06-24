@@ -75,6 +75,13 @@ public class NotificationService {
 
     @Value("${rsi.demo.account-currency:EUR}")
     private String accountCurrency;
+
+    // Trailing-stop geometry as multipliers of the stop distance — keep in sync with PositionOutcomeService.
+    @Value("${rsi.demo.trail-activation-mult:1.0}")
+    private double trailActivationMult;
+
+    @Value("${rsi.demo.trail-distance-mult:1.0}")
+    private double trailDistanceMult;
     
     @EventListener
     @Async
@@ -316,14 +323,14 @@ public class NotificationService {
         }
 
         // Manual trailing-stop guidance — for actionable (non-partial, non-watch) signals only.
-        // Trigger at half the stop distance in profit (move to break-even), then trail by the same
-        // amount under each new extreme. Mirrors the manual discipline that has outperformed the
-        // fixed Stop/Limit on SOL (May 2026 review).
+        // Trigger at trail-activation-mult × stop in profit (move to break-even), then trail
+        // trail-distance-mult × stop under each new extreme. Mirrors the manual discipline that has
+        // outperformed the fixed Stop/Limit on SOL (May 2026 review). Multipliers are configurable.
         boolean isWatch = signal.getSignalType() == SignalLog.SignalType.WATCH_OVERSOLD
                 || signal.getSignalType() == SignalLog.SignalType.WATCH_OVERBOUGHT;
         if (!isPartial && !isWatch) {
-            long trailTriggerPts = Math.max(1, stopPts / 2);
-            long trailStepPts = Math.max(1, stopPts / 2);
+            long trailTriggerPts = Math.max(1, Math.round(stopPts * trailActivationMult));
+            long trailStepPts = Math.max(1, Math.round(stopPts * trailDistanceMult));
             String extreme = isLong ? "high" : "low";
             sb.append("\n\uD83E\uDE9C Trail: at +").append(trailTriggerPts)
               .append("pt \u2192 stop to entry; then trail ").append(trailStepPts)

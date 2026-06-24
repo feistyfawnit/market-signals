@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -91,6 +92,11 @@ public class IGTradingService {
     // stop/limit distance at spread × this multiplier so there is genuine room beyond the spread.
     @Value("${trading.auto-execution.spread-stop-multiplier:2.0}")
     private double spreadStopMultiplier;
+
+    // Skip live trade when the bid/offer spread consumes more than this % of the stop distance.
+    // Prevents low-edge entries (e.g. Sunday 22:00 UTC open or thin markets). 0 disables the guard.
+    @Value("${trading.auto-execution.max-spread-pct-of-stop:25.0}")
+    private double maxSpreadPctOfStop;
 
     @Value("${rsi.demo.account-currency:EUR}")
     private String accountCurrency;
@@ -286,10 +292,31 @@ public class IGTradingService {
 
         // The stop must clear BOTH IG's reported minimum distance AND the live bid/offer spread
         // (× multiplier) — otherwise the position is stopped out the instant it opens.
-        BigDecimal spreadFloor = marketSpread(md).multiply(BigDecimal.valueOf(spreadStopMultiplier));
+        BigDecimal spread = marketSpread(md);
+        BigDecimal spreadFloor = spread.multiply(BigDecimal.valueOf(spreadStopMultiplier));
         BigDecimal minDist = minStopOrLimitDistance(md).max(spreadFloor);
         BigDecimal step = minStepDistance(md);
         BigDecimal stopDistance = roundUpToStep(BigDecimal.valueOf(risk[0]).max(minDist), step);
+
+        // Spread-as-%-of-stop guard. If the spread consumes too much of the planned stop,
+        // the edge is too low to open (common at Sunday open or in thin markets).
+        if (maxSpreadPctOfStop > 0 && stopDistance.compareTo(BigDecimal.ZERO) > 0) {
+            double spreadPctOfStop = spread.multiply(BigDecimal.valueOf(100))
+                    .divide(stopDistance, 4, RoundingMode.HALF_UP)
+                    .doubleValue();
+            if (spreadPctOfStop > maxSpreadPctOfStop) {
+                log.warn("Skipping IG deal for {} — spread {}pt is {}% of stop ({}%), max={}%",
+                        signal.getSymbol(), spread.stripTrailingZeros().toPlainString(),
+                        spreadPctOfStop, stopDistance.stripTrailingZeros().toPlainString(), maxSpreadPctOfStop);
+                telegramNotificationService.send("⚠️ Trade skipped — spread too wide",
+                        String.format("%s %s: spread %spt = %.1f%% of stop (max %.1f%%)",
+                                direction, signal.getSymbol(), spread.stripTrailingZeros().toPlainString(),
+                                spreadPctOfStop, maxSpreadPctOfStop));
+                recordEntrySpread(signal, spread, signal.getCurrentPrice());
+                return Mono.empty();
+            }
+        }
+
         // Keep the reward:risk ratio after any widening of the stop, and never let the limit
         // fall below the stop or IG's minimum distance.
         BigDecimal limitDistance = roundUpToStep(
@@ -300,7 +327,8 @@ public class IGTradingService {
         DealRequest dealRequest = new DealRequest(epic, expiry, direction, size, "MARKET", currencyCode,
                 true, false, stopDistance, limitDistance);
         log.info("Placing IG deal: epic={} expiry={} dir={} size={} ccy={} stopDist={} limitDist={} (spread={} minDist={})",
-                epic, expiry, direction, size, currencyCode, stopDistance, limitDistance, marketSpread(md), minDist);
+                epic, expiry, direction, size, currencyCode, stopDistance, limitDistance, spread, minDist);
+        recordEntrySpread(signal, spread, signal.getCurrentPrice());
 
         return authService.getClient().post()
                 .uri("/positions/otc")
@@ -545,6 +573,27 @@ public class IGTradingService {
     /** True if IG credentials are configured (independent of whether a live session exists). */
     public boolean isIgAvailable() {
         return authService.isEnabled();
+    }
+
+    /**
+     * Records the bid/offer spread at entry on the open position outcome.
+     * Called whether the deal proceeds or is skipped, so we can analyse how much of the
+     * stop the spread consumed and whether weekend/thin-market entries underperform.
+     */
+    private void recordEntrySpread(RsiSignal signal, BigDecimal spread, BigDecimal entryPrice) {
+        if (spread == null || spread.compareTo(BigDecimal.ZERO) <= 0) return;
+        positionOutcomeRepository.findFirstBySymbolAndExitTimeIsNull(signal.getSymbol())
+                .ifPresent(pos -> {
+                    pos.setEntrySpreadPts(spread);
+                    BigDecimal pct = entryPrice != null && entryPrice.compareTo(BigDecimal.ZERO) > 0
+                            ? spread.multiply(BigDecimal.valueOf(100))
+                                    .divide(entryPrice, 6, RoundingMode.HALF_UP)
+                                    .setScale(4, RoundingMode.HALF_UP)
+                            : null;
+                    pos.setEntrySpreadPct(pct);
+                    positionOutcomeRepository.save(pos);
+                    log.debug("Recorded entry spread for {}: {}pt ({}%)", signal.getSymbol(), spread, pct);
+                });
     }
 
     @Data

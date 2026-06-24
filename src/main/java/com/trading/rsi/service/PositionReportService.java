@@ -105,8 +105,8 @@ public class PositionReportService {
         // ── Combined Positions Table (Open + Recent Closed) ──
         int recentCount = Math.min(closed.size(), 15);
         md.append("## Positions (Open: ").append(open.size()).append(", Recent Closed: ").append(recentCount).append(" of ").append(closed.size()).append(")\n\n");
-        md.append("| # | Entry | Sym | Sig | P&L% | € | Res | Hold |\n");
-        md.append("|---|-------|-----|-----|------|---|-----|------|\n");
+        md.append("| # | Entry | Sym | Sig | Sprd | P&L% | € | Res | Hold |\n");
+        md.append("|---|-------|-----|-----|------|------|---|-----|------|\n");
         
         Instant nowI = Instant.now();
         double riskEurExit = demoAccountBalance * demoRiskPercent / 100.0;
@@ -319,8 +319,8 @@ public class PositionReportService {
         // ── All Closed Positions (moved to end, collapsed if large) ──
         if (!closed.isEmpty()) {
             md.append("\n<details>\n<summary>All Closed Positions (").append(closed.size()).append(" total) — click to expand</summary>\n\n");
-            md.append("| # | Entry | Sym | Sig | P&L% | € | Res | Hold |\n");
-            md.append("|---|-------|-----|-----|------|---|-----|------|\n");
+            md.append("| # | Entry | Sym | Sig | Sprd | P&L% | € | Res | Hold |\n");
+            md.append("|---|-------|-----|-----|------|------|---|-----|------|\n");
             AtomicInteger detailRow = new AtomicInteger(1);
             closed.stream()
                     .sorted(Comparator.comparing(PositionOutcome::getEntryTime).reversed())
@@ -349,7 +349,7 @@ public class PositionReportService {
         double riskEur = demoAccountBalance * demoRiskPercent / 100.0;
         StringBuilder csv = new StringBuilder();
         csv.append("id,direction,signal_type,symbol,entry_time,entry_price,stop_price,target_price,");
-        csv.append("result,exit_time,pnl_pct,est_eur_pnl,holding_hrs\n");
+        csv.append("result,exit_time,pnl_pct,est_eur_pnl,holding_hrs,spread_pts,spread_pct\n");
 
         for (PositionOutcome p : all) {
             String direction = Boolean.TRUE.equals(p.getIsLong()) ? "LONG" : "SHORT";
@@ -372,7 +372,9 @@ public class PositionReportService {
                .append(p.getExitTime() != null ? p.getExitTime().atZone(ZoneOffset.UTC).format(FMT) : "").append(",")
                .append(p.getPnlPct() != null ? String.format("%+.2f", p.getPnlPct().doubleValue()) : "").append(",")
                .append(p.getExitTime() != null ? String.format("%+.0f", estEur) : "").append(",")
-               .append(p.getHoldingHours() != null ? String.format("%.1f", p.getHoldingHours()) : "")
+               .append(p.getHoldingHours() != null ? String.format("%.1f", p.getHoldingHours()) : "").append(",")
+               .append(p.getEntrySpreadPts() != null ? p.getEntrySpreadPts().toPlainString() : "").append(",")
+               .append(p.getEntrySpreadPct() != null ? String.format("%.4f", p.getEntrySpreadPct().doubleValue()) : "")
                .append("\n");
         }
         return csv.toString();
@@ -412,6 +414,7 @@ public class PositionReportService {
                 + " | " + p.getEntryTime().atZone(ZoneOffset.UTC).format(FMT)
                 + " | " + shortName
                 + " | " + sigType
+                + " | " + formatSpread(p.getEntrySpreadPct())
                 + " | " + String.format("%+.2f%%", p.getPnlPct().doubleValue())
                 + " | " + (estEurVal >= 0 ? "+" : "") + String.format("€%.0f", estEurVal)
                 + " | " + result
@@ -461,11 +464,16 @@ public class PositionReportService {
                 + " | " + p.getEntryTime().atZone(ZoneOffset.UTC).format(FMT)
                 + " | " + shortName
                 + " | " + sigType
+                + " | " + formatSpread(p.getEntrySpreadPct())
                 + " | " + pnlPctStr
                 + " | " + estEurStr
                 + " | " + result + "OPEN"
                 + " | " + String.format("%.1fh", heldHours)
                 + " |\n";
+    }
+
+    private String formatSpread(BigDecimal pct) {
+        return pct == null ? "—" : String.format("%.2f%%", pct.doubleValue());
     }
 
     /**

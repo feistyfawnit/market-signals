@@ -109,6 +109,14 @@ public class PositionOutcomeService {
     @Value("${rsi.demo.max-concurrent-per-asset-class:2}")
     private int maxConcurrentPerAssetClass;
 
+    // Trailing-stop geometry as multipliers of the initial stop distance (stopPts). See application.yml.
+    // Jun 23 2026: was hardcoded 0.5/0.5 — too tight in low-vol regimes, exited winners at breakeven.
+    @Value("${rsi.demo.trail-activation-mult:1.0}")
+    private double trailActivationMult;
+
+    @Value("${rsi.demo.trail-distance-mult:1.0}")
+    private double trailDistanceMult;
+
     private boolean isQuietHours() {
         if (!quietHoursEnabled) return false;
         int h = ZonedDateTime.now(ZoneOffset.UTC).getHour();
@@ -281,8 +289,8 @@ public class PositionOutcomeService {
         if (currentPrice == null) return;
 
         long stopPts = pos.getStopPts();
-        long trailThresholdPts = Math.max(1L, stopPts / 2);   // 50% of initial stop distance
-        long trailDistance = trailThresholdPts;                // trail distance = threshold (matches signal spec: "trail Xpt below new highs")
+        long trailThresholdPts = Math.max(1L, Math.round(stopPts * trailActivationMult));   // activation × initial stop distance
+        long trailDistance = Math.max(1L, Math.round(stopPts * trailDistanceMult));         // trail this far below new extremes
 
         BigDecimal unrealisedGain;
         if (Boolean.TRUE.equals(pos.getIsLong())) {
@@ -622,9 +630,10 @@ public class PositionOutcomeService {
         boolean trail = paperTrailingEnabled
                 && pos.getIgDealId() == null
                 && pos.getStopPts() != null && pos.getStopPts() > 0;
-        long trailThresholdPts = trail ? Math.max(1L, pos.getStopPts() / 2) : 0;
+        long trailThresholdPts = trail ? Math.max(1L, Math.round(pos.getStopPts() * trailActivationMult)) : 0;
+        long trailDistancePts = trail ? Math.max(1L, Math.round(pos.getStopPts() * trailDistanceMult)) : 0;
         BigDecimal trailThreshold = BigDecimal.valueOf(trailThresholdPts);
-        BigDecimal trailDistance = trailThreshold;   // trail distance = threshold (matches signal spec)
+        BigDecimal trailDistance = BigDecimal.valueOf(trailDistancePts);
         BigDecimal extreme = entry;                   // best price seen so far (high for long, low for short)
 
         for (CandleHistory candle : candles) {

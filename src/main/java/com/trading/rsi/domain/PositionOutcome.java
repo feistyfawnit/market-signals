@@ -95,4 +95,14 @@ public class PositionOutcome {
      *  the original value after slPrice has been updated by trailing. */
     @Column(name = "stop_pts")
     private Long stopPts;
+
+    /** Bid/offer spread at entry (points). Captured from the live IG market snapshot when
+     *  the trade is placed, so we can measure how much of the stop the spread consumed.
+     *  Null for paper positions or when the IG snapshot is unavailable. */
+    @Column(name = "entry_spread_pts", precision = 20, scale = 8)
+    private BigDecimal entrySpreadPts;
+
+    /** Bid/offer spread at entry as a percentage of entry price. */
+    @Column(name = "entry_spread_pct", precision = 10, scale = 4)
+    private BigDecimal entrySpreadPct;
 }
