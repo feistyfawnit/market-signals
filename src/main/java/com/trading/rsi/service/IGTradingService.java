@@ -152,8 +152,17 @@ public class IGTradingService {
             return;
         }
 
-        // Determine if we should send the confirmation keyboard
-        boolean canConfirm = telegramConfirmationService != null
+        // Per-instrument auto-execute: skip the confirmation keyboard for proven-profit
+        // instruments (e.g. SOL/BTC/ETH) where missing the 120s window is the bigger risk.
+        // S&P/DAX/Gold/Silver still require manual approval.
+        boolean instrumentAutoExecute = instrumentRepository.findBySymbol(signal.getSymbol())
+                .map(i -> Boolean.TRUE.equals(i.getAutoExecuteEnabled()))
+                .orElse(false);
+
+        // Determine if we should send the confirmation keyboard.
+        // Skip the keyboard if the instrument has auto-execute enabled.
+        boolean canConfirm = !instrumentAutoExecute
+                && telegramConfirmationService != null
                 && (confirmationOnlyEnabled || (autoExecutionEnabled && requireManualApproval));
 
         // If auto-execution is off and confirmation-only is off, nothing to do
@@ -176,7 +185,7 @@ public class IGTradingService {
             }
         }
 
-        // Send confirmation keyboard if manual approval is required or confirmation-only mode
+        // Send confirmation keyboard if manual approval is required (and instrument not auto-execute)
         boolean userConfirmed = true;  // default: auto-confirm if no keyboard
         if (canConfirm) {
             log.info("Sending confirmation keyboard for {} {} @ {}",
@@ -188,8 +197,9 @@ public class IGTradingService {
                 return;
             }
             userConfirmed = true;
-        } else if (autoExecutionEnabled && !requireManualApproval) {
-            log.info("Auto-executing {} {} without manual approval", signal.getSymbol(), signal.getSignalType());
+        } else if (autoExecutionEnabled && (instrumentAutoExecute || !requireManualApproval)) {
+            log.info("Auto-executing {} {} (instrument auto-execute={})",
+                    signal.getSymbol(), signal.getSignalType(), instrumentAutoExecute);
         }
 
         // Execute real IG trade only if auto-execution is enabled and confirmed

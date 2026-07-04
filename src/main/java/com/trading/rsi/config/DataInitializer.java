@@ -42,6 +42,7 @@ public class DataInitializer implements ApplicationRunner {
                         .trendBuyDipEnabled(config.getTrendBuyDipEnabled())
                         .trendBuyDipNotify(config.getTrendBuyDipNotify())
                         .rsiSignalsEnabled(config.getRsiSignalsEnabled())
+                        .autoExecuteEnabled(config.getAutoExecuteEnabled())
                         .igEpic(config.getIgEpic())
                         .build();
                 instrumentRepository.save(instrument);
@@ -61,6 +62,7 @@ public class DataInitializer implements ApplicationRunner {
                 instrument.setTrendBuyDipEnabled(config.getTrendBuyDipEnabled());
                 instrument.setTrendBuyDipNotify(config.getTrendBuyDipNotify());
                 instrument.setRsiSignalsEnabled(config.getRsiSignalsEnabled());
+                instrument.setAutoExecuteEnabled(config.getAutoExecuteEnabled());
                 instrument.setIgEpic(config.getIgEpic());
                 instrumentRepository.save(instrument);
                 log.debug("Synced instrument from YAML: {} (enabled={} - preserved from DB)", config.getSymbol(), instrument.getEnabled());

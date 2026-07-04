@@ -262,6 +262,7 @@ watchlist:
       overbought-threshold: 70
       timeframes: "15m,1h,4h"
       ig-epic: CS.D.SOLUSD.TODAY.IP
+      auto-execute-enabled: true
     - symbol: BTCUSDT
       name: Bitcoin
       source: BINANCE
@@ -271,6 +272,7 @@ watchlist:
       overbought-threshold: 70
       timeframes: "15m,1h,4h"
       ig-epic: CS.D.BITCOIN.TODAY.IP
+      auto-execute-enabled: true
       # Re-enabled Apr 22 2026 after R:R dropped to 2:1 (was 3:1 and unreachable).
       # SOL's 5/8 win rate under same setup suggests BTC may also perform.
     - symbol: ETHUSDT
@@ -281,6 +283,7 @@ watchlist:
       oversold-threshold: 30
       overbought-threshold: 70
       timeframes: "15m,1h,4h"
+      auto-execute-enabled: true
       ig-epic: CS.D.ETHUSD.TODAY.IP
       # Re-enabled Apr 22 2026 alongside BTC — same rationale.
     - symbol: BCHUSDT

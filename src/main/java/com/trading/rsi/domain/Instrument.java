@@ -74,6 +74,16 @@ public class Instrument {
     @Column(name = "rsi_signals_enabled")
     private Boolean rsiSignalsEnabled = true;
 
+    /**
+     * When true, signals for this instrument skip the Telegram confirmation keyboard
+     * and execute immediately (subject to kill switch, risk limits, and quiet hours).
+     * Default false — manual approval required. Set true for proven-profit instruments
+     * where missing the 120s confirmation window due to work/sleep is the bigger risk.
+     */
+    @Builder.Default
+    @Column(name = "auto_execute_enabled")
+    private Boolean autoExecuteEnabled = false;
+
     @Column(name = "ig_epic")
     private String igEpic;
 
