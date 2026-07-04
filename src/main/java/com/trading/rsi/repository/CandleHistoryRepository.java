@@ -16,8 +16,6 @@ import java.util.List;
 @Repository
 public interface CandleHistoryRepository extends JpaRepository<CandleHistory, Long> {
 
-    List<CandleHistory> findBySymbolAndTimeframeOrderByCandleTimeAsc(String symbol, String timeframe);
-
     List<CandleHistory> findBySymbolAndTimeframeOrderByCandleTimeDesc(String symbol, String timeframe, Pageable pageable);
 
     List<CandleHistory> findByCandleTimeBefore(Instant before);

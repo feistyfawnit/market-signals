@@ -4,10 +4,12 @@ import com.trading.rsi.domain.CandleHistory;
 import com.trading.rsi.repository.CandleHistoryRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -49,6 +51,12 @@ public class AdxCalculator {
 
     private final CandleHistoryRepository candleHistoryRepository;
 
+    // ADX cascades two Wilder-smoothing stages (TR/DM, then DX→ADX), so the seed bias decays
+    // slightly slower than a single-stage indicator like ATR. Buffer on top of the strict
+    // 2×period+1 requirement leaves negligible seed influence — see AGENTS.md § Efficiency
+    // Guardrails ("DB queries must be bounded") and AtrCalculator for the same pattern.
+    private static final int SMOOTHING_BUFFER_MULTIPLIER = 5;
+
     /**
      * Compute the latest ADX value for symbol on timeframe using the given period.
      * Returns empty if insufficient history.
@@ -56,8 +64,12 @@ public class AdxCalculator {
     public Optional<BigDecimal> computeAdx(String symbol, String timeframe, int period) {
         if (period < 2) return Optional.empty();
 
+        // Bounded query — no full-table scan. Fetch most-recent N candles desc, then
+        // reverse to ascending time order (required by the smoothing walk below).
+        int fetchSize = period * (2 + SMOOTHING_BUFFER_MULTIPLIER) + 1;
         List<CandleHistory> candles = candleHistoryRepository
-                .findBySymbolAndTimeframeOrderByCandleTimeAsc(symbol, timeframe);
+                .findBySymbolAndTimeframeOrderByCandleTimeDesc(symbol, timeframe, PageRequest.of(0, fetchSize));
+        Collections.reverse(candles);
 
         // Need 2 × period + 1 bars: period for DI smoothing, then period DX values
         // to seed the ADX average.

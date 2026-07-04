@@ -367,8 +367,16 @@ class PositionOutcomeServiceTest {
 
     @Test
     void checkAndClosePosition_paperTrailing_capturesProfitOnPullback() {
+        // @InjectMocks bypasses Spring property placeholder resolution, so @Value-defaulted
+        // fields sit at the Java default (0.0) unless pinned explicitly — pin them to the real
+        // application.yml defaults (rsi.demo.trail-activation-mult / trail-distance-mult, both
+        // 1.0 since Jun 23 2026) so this test reflects actual production trailing geometry.
+        ReflectionTestUtils.setField(service, "trailActivationMult", 1.0);
+        ReflectionTestUtils.setField(service, "trailDistanceMult", 1.0);
+
         Instant entryTime = Instant.now().minus(2, ChronoUnit.HOURS);
-        // stopPts=10 → original SL 90, trail arms at +5 (50% of stop), then trails 5 below highs.
+        // stopPts=10 → original SL 90, trail arms once price reaches entry+10 (100% of stop),
+        // then trails 10 below the highest high seen.
         PositionOutcome pos = PositionOutcome.builder()
                 .id(10L)
                 .symbol("BTCUSDT")
@@ -382,19 +390,20 @@ class PositionOutcomeServiceTest {
                 .igDealId(null)                    // paper position — eligible for replay trailing
                 .build();
 
-        // Candle 1 rallies to 110 (arms trail → stop ratchets to 105). Candle 2 pulls back to 104,
-        // touching the trailed stop at 105 — a profitable exit, NOT the original 90 loss.
+        // Candle 1 rallies to 125 (arms trail at +10, ratchets stop to high(125) - distance(10)
+        // = 115). Candle 2 pulls back to 112, touching the trailed stop at 115 — a profitable
+        // exit (entry 100 -> 115), NOT the original 90 loss.
         CandleHistory c1 = CandleHistory.builder()
                 .symbol("BTCUSDT").timeframe("15m")
                 .candleTime(entryTime.plus(30, ChronoUnit.MINUTES))
-                .open(new BigDecimal("101")).high(new BigDecimal("110"))
-                .low(new BigDecimal("101")).close(new BigDecimal("109"))
+                .open(new BigDecimal("118")).high(new BigDecimal("125"))
+                .low(new BigDecimal("115")).close(new BigDecimal("122"))
                 .build();
         CandleHistory c2 = CandleHistory.builder()
                 .symbol("BTCUSDT").timeframe("15m")
                 .candleTime(entryTime.plus(60, ChronoUnit.MINUTES))
-                .open(new BigDecimal("109")).high(new BigDecimal("109"))
-                .low(new BigDecimal("104")).close(new BigDecimal("104"))
+                .open(new BigDecimal("122")).high(new BigDecimal("122"))
+                .low(new BigDecimal("112")).close(new BigDecimal("113"))
                 .build();
 
         when(candleHistoryRepository.findBySymbolAndTimeframeAndCandleTimeBetweenOrderByCandleTimeAsc(
@@ -405,7 +414,7 @@ class PositionOutcomeServiceTest {
 
         assertTrue(pos.getSlHit(), "Trailed exit is recorded as an SL hit");
         assertFalse(pos.getTpHit());
-        assertEquals(new BigDecimal("105"), pos.getExitPrice(), "Exit at the trailed stop, not the original 90");
+        assertEquals(new BigDecimal("115"), pos.getExitPrice(), "Exit at the trailed stop (entry+15), not the original 90");
         assertTrue(pos.getPnlPct().doubleValue() > 0, "Trailed stop locks in profit");
         verify(positionOutcomeRepository).save(pos);
     }

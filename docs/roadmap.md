@@ -11,8 +11,39 @@
 | 1 — Core multi-indicator alerts | ✅ Live | Binance + IG; RSI across 15m/1h/4h; Telegram (ntfy.sh retired Apr 2026). |
 | 2 — IG API integration | ✅ Live | Session auto-refresh; DAX / FTSE / S&P / Gold / Oil / Silver seeded. |
 | 3 — AI enrichment | ✅ Built, disabled | Both `ClaudeEnrichmentService` and `DeepSeekEnrichmentService` wired. Toggle with `CLAUDE_ENABLED=true` or `DEEPSEEK_ENABLED=true` + corresponding API key. DeepSeek is the preferred path going forward. |
-| 4 — IG auto-execution | ✅ Scaffolded, OFF by default | `TRADING_AUTO_EXECUTION_ENABLED=false` default. Telegram inline-keyboard manual approval + ratcheting trailing stop + kill switch all live. Requires 3+ months paper-trade validation before enabling. Direction switch + standard-stop fixes shipped May 17 2026. |
+| 4 — IG auto-execution | ✅ Phase 1 live (Jul 4 2026) | Per-instrument `auto-execute-enabled` flag. Crypto (SOL/BTC/ETH) auto-executes immediately — no confirmation keyboard. Indices/commodities still require manual approval. Quiet hours bypassed for auto-execute instruments. See Phase 2/3 gates below. |
 | 5 — Anomaly / geopolitical | ⏳ Partial | **Cross-instrument correlation** and **Volatility regime filter** live. Volume spike, Polymarket, momentum surge, and oil opportunity features removed Apr 2026 — zero actionable signals after weeks of monitoring (see `project-log.md`). Only **Uncertainty Mode** not started. |
+
+---
+
+## Phase 4 Auto-Execution Progression
+
+Phase 4 is gated on live-vs-paper parity, not calendar time. Each phase unlocks after the criteria are met.
+
+### Phase 1 — Crypto auto-execute (✅ LIVE Jul 4 2026)
+- SOL/BTC/ETH skip the 120s confirmation keyboard and place IG demo deals immediately
+- Indices/commodities still require manual approval
+- Quiet hours bypassed for auto-execute instruments only
+- **Risk controls active**: kill switch, daily loss limit (2%), max 2 concurrent IG positions, spread guard (25% of stop), stop floor (spread × 2.0)
+
+### Phase 2 — Extend auto-execute to indices/commodities (⏳ pending Phase 1 data)
+**Gate**: ≥20 crypto auto-executed trades with live-vs-paper slippage ≤ 0.15% mean absolute difference
+- Compare `entry_price` (live IG snapshot) vs `entryPrice` (paper Binance/IG mid-price) in `position_outcomes`
+- If live fills are consistently worse than paper by >0.15%, the spread guard needs tightening before extending
+- **Action**: flip `auto-execute-enabled: true` for S&P 500 (best forward performer), observe 10 trades, then DAX/Gold/Silver
+
+### Phase 3 — Full auto-execute (⏳ pending Phase 2 data)
+**Gate**: ≥50 total auto-executed trades across all instruments with:
+- Win rate ≥ 45%
+- Expectancy ≥ +0.10R
+- No single-day loss > €300 (3× daily risk budget)
+- **Action**: flip `auto-execute-enabled: true` for all enabled instruments, disable `require-manual-approval`
+
+### Phase 4 — Live account (⏳ months, not weeks)
+**Gate**: ≥3 consecutive months of positive demo P&L with ≥100 trades and Sharpe > 0.5
+- Switch IG endpoint from demo-api to live-api
+- Reduce position sizes to 0.5% risk initially
+- **Do not rush.** Demo P&L must be consistently profitable first.
 
 ---
 

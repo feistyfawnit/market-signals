@@ -134,10 +134,21 @@ public class IGTradingService {
             return;
         }
 
-        // Guard: quiet hours — no trade prompts or executions during sleep window.
-        // NotificationService and PositionOutcomeService already enforce this; this
-        // keeps IGTradingService in sync so confirmation keyboards don't fire at 3am.
-        if (isQuietHours()) {
+        // Per-instrument auto-execute: skip the confirmation keyboard for proven-profit
+        // instruments (e.g. SOL/BTC/ETH) where missing the 120s window is the bigger risk.
+        // S&P/DAX/Gold/Silver still require manual approval.
+        boolean instrumentAutoExecute = instrumentRepository.findBySymbol(signal.getSymbol())
+                .map(i -> Boolean.TRUE.equals(i.getAutoExecuteEnabled()))
+                .orElse(false);
+
+        // Guard: quiet hours — no trade prompts or executions during the sleep window, UNLESS
+        // the instrument is auto-execute (no human needs to be awake to approve it). Manual-
+        // approval instruments (S&P/DAX/Gold/Silver) still skip so their confirmation keyboard
+        // never fires at 3am. NotificationService/PositionOutcomeService independently keep
+        // suppressing Telegram pushes for ALL instruments during quiet hours — overnight
+        // auto-executed trades are silent and show up in the next `/pnl-report`, same as the
+        // existing "silent" (trend-buy-dip-notify:false) instrument pattern. Jul 4 2026.
+        if (isQuietHours() && !instrumentAutoExecute) {
             log.info("Quiet hours — skipping trade action for {} {}", signal.getSymbol(), signal.getSignalType());
             return;
         }
@@ -151,13 +162,6 @@ public class IGTradingService {
             log.warn("No direction for signal type {} — trade aborted", signal.getSignalType());
             return;
         }
-
-        // Per-instrument auto-execute: skip the confirmation keyboard for proven-profit
-        // instruments (e.g. SOL/BTC/ETH) where missing the 120s window is the bigger risk.
-        // S&P/DAX/Gold/Silver still require manual approval.
-        boolean instrumentAutoExecute = instrumentRepository.findBySymbol(signal.getSymbol())
-                .map(i -> Boolean.TRUE.equals(i.getAutoExecuteEnabled()))
-                .orElse(false);
 
         // Determine if we should send the confirmation keyboard.
         // Skip the keyboard if the instrument has auto-execute enabled.

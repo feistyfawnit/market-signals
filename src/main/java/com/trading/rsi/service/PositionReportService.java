@@ -398,17 +398,7 @@ public class PositionReportService {
         double estEurVal = estEur(p, riskEur);
 
         String shortName = SHORT_NAMES.getOrDefault(p.getSymbol(), p.getSymbol());
-        String rawSigType = p.getSignalType().toString();
-        String sigType = rawSigType;
-
-        // Strikethrough if TREND_BUY_DIP is disabled; 🔇 if notify is off (silent recording)
-        Instrument inst = instruments.get(p.getSymbol());
-        if ("TREND_BUY_DIP".equals(rawSigType) && inst != null && Boolean.FALSE.equals(inst.getTrendBuyDipEnabled())) {
-            sigType = "~~" + sigType + "~~";
-        }
-        if ("TREND_BUY_DIP".equals(rawSigType) && inst != null && Boolean.FALSE.equals(inst.getTrendBuyDipNotify())) {
-            sigType = "🔇 " + sigType;
-        }
+        String sigType = formatSigType(p, instruments);
 
         return "| " + rowNum
                 + " | " + p.getEntryTime().atZone(ZoneOffset.UTC).format(FMT)
@@ -423,14 +413,13 @@ public class PositionReportService {
     }
 
     /**
-     * Format an open position as a compact markdown row with short names.
+     * Decorates a signal type label: strikethrough if TREND_BUY_DIP is disabled for the
+     * instrument; 🔇 prefix if notify is off (silent recording). Shared by the open/closed
+     * row formatters so the two stay in sync.
      */
-    private String formatOpenRowCompact(PositionOutcome p, double riskEur, Instant nowI, Map<String, Instrument> instruments, int rowNum) {
-        String shortName = SHORT_NAMES.getOrDefault(p.getSymbol(), p.getSymbol());
+    private String formatSigType(PositionOutcome p, Map<String, Instrument> instruments) {
         String rawSigType = p.getSignalType().toString();
         String sigType = rawSigType;
-
-        // Strikethrough if TREND_BUY_DIP is disabled; 🔇 if notify is off (silent recording)
         Instrument inst = instruments.get(p.getSymbol());
         if ("TREND_BUY_DIP".equals(rawSigType) && inst != null && Boolean.FALSE.equals(inst.getTrendBuyDipEnabled())) {
             sigType = "~~" + sigType + "~~";
@@ -438,6 +427,15 @@ public class PositionReportService {
         if ("TREND_BUY_DIP".equals(rawSigType) && inst != null && Boolean.FALSE.equals(inst.getTrendBuyDipNotify())) {
             sigType = "🔇 " + sigType;
         }
+        return sigType;
+    }
+
+    /**
+     * Format an open position as a compact markdown row with short names.
+     */
+    private String formatOpenRowCompact(PositionOutcome p, double riskEur, Instant nowI, Map<String, Instrument> instruments, int rowNum) {
+        String shortName = SHORT_NAMES.getOrDefault(p.getSymbol(), p.getSymbol());
+        String sigType = formatSigType(p, instruments);
 
         BigDecimal cur = priceHistoryService.getLatestPrice(p.getSymbol());
         String pnlPctStr = "—";

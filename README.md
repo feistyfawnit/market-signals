@@ -16,7 +16,7 @@ A production-grade Spring Boot service that monitors financial instruments for m
 - ✅ DeepSeek AI signal enrichment (optional — adds market context to Telegram alerts)
 - ✅ Signal CSV archival with outcome backfill
 - ✅ Auto P&L tracking — positions opened on signal, TP/SL checked hourly, daily markdown report
-- ✅ **IG auto-execution with Telegram inline-keyboard confirmation** — trade only after manual approve/skip
+- ✅ **IG auto-execution with Telegram inline-keyboard confirmation** — crypto auto-executes (no confirm needed), indices/commodities require manual approve/skip (Jul 2026)
 - ✅ **Ratcheting trailing stop loss** — locks in profit as price moves favourably, never moves against you
 - ✅ **IG position reconciliation** — detects manual closes, keeps DB in sync with live IG positions
 - ✅ REST API for instruments, signals, settings, positions, retrospective analysis, trade testing
@@ -119,7 +119,7 @@ The app comes pre-configured with:
 - **Ethereum (ETHUSDT)** - Binance
 - **Bitcoin Cash (BCHUSDT)** - Binance
 - **DAX 40, FTSE 100, S&P 500, Nasdaq 100** - IG API
-- **Gold, Oil (Brent)** - IG API (Silver, Nasdaq disabled)
+- **Gold, Silver, Oil (Brent)** - IG API (Nasdaq disabled)
 
 All crypto data is FREE via Binance API (no API key required). Indices/commodities require an IG account.
 
@@ -138,7 +138,7 @@ rsi:
   quiet-hours:
     enabled: true
     start-hour: 22              # 10 PM UTC (11 PM BST)
-    end-hour: 8                 # 8 AM UTC (9 AM BST) — full signals bypass quiet hours
+    end-hour: 8                 # 8 AM UTC (9 AM BST) — auto-execute instruments bypass quiet hours (Jul 2026)
 ```
 
 See [docs/api.md](docs/api.md) for adding instruments via the REST API.

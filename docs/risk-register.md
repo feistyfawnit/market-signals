@@ -1,6 +1,6 @@
 # LucidLynx Market Signals — Risk Register & Open Items
 
-*Last updated: May 2026*
+*Last updated: Jul 2026*
 *Renamed from Windsurf.md — April 2026*
 
 ---
@@ -23,7 +23,7 @@
 | RSI calculation bugs | Low | High | Unit test against TA-Lib; backtest on historical data |
 | AWS EC2 downtime / OOM kill | **Occurred** | **High** | JVM capped at `-Xmx320m -XX:MaxMetaspaceSize=128m -XX:MaxDirectMemorySize=32m`; 2 GB swap added; `restart: unless-stopped` auto-recovers app but does not recover sshd if OOM kills OS processes |
 | Feature growth on t3.micro | Medium | Medium | Each new scheduled service adds heap + thread pressure. t3.micro has 1 GB RAM. New features must be assessed for memory/CPU impact before merging (AGENTS.md § Efficiency Guardrails). |
-| Unbounded DB query on hot path | Low | Medium | ✅ `AtrCalculator` bounded May 22 2026; pattern enforced via AGENTS.md (`findBy...Desc(..., PageRequest)`) |
+| Unbounded DB query on hot path | Low | Medium | ✅ `AtrCalculator` bounded May 22 2026; ✅ `AdxCalculator` bounded Jul 4 2026; unbounded `...Asc` repository method removed entirely; pattern enforced via AGENTS.md (`findBy...Desc(..., PageRequest)`) |
 | Market closure edge case | Medium | Low | Skip polling outside market hours per instrument |
 | IG 10k/week data allowance exceeded | **Occurred** | **Critical** | Split polling (IG 15 min), candle-period skip, stale DB cleanup; see April 7 incident |
 
@@ -34,7 +34,7 @@
 | Strategy stops working | Medium | High | R-multiple P&L tracking + daily report; per-instrument disable flags (e.g. DAX TREND_BUY_DIP turned off after 0/9 wins) |
 | Trend detection false positive | Medium | Medium | Tighter stops (1.5× ATR for trend); 16 h auto-close (lowered 24→16h May 2026); EMA-slope + ATR-min + dedupe filters |
 | Overfitting to recent conditions | Medium | Medium | Apr 2026 backtest archived in `docs/archived/backtest-report.md`; new filters staged OFF before observation |
-| Auto-execution bug | Low | **Critical** | Demo-only by default; manual approval via Telegram inline keyboard; kill switch; position limits; ratcheting trailing stop never moves stop adverse |
+| Auto-execution bug | Low | **Critical** | Demo-only; per-instrument auto-execute (crypto only, Jul 2026); manual approval for indices/commodities; kill switch; daily loss limit (2%); max 2 concurrent IG positions; spread guard; ratcheting trailing stop never moves stop adverse |
 | MiFID II breach if shared | Low | **Critical** | Never distribute; keep private; personal use documented |
 
 ---
