@@ -308,7 +308,7 @@ public class IGTradingService {
         // (× multiplier) — otherwise the position is stopped out the instant it opens.
         BigDecimal spread = marketSpread(md);
         BigDecimal spreadFloor = spread.multiply(BigDecimal.valueOf(spreadStopMultiplier));
-        BigDecimal minDist = minStopOrLimitDistance(md).max(spreadFloor);
+        BigDecimal minDist = minStopOrLimitDistance(md, signal.getCurrentPrice()).max(spreadFloor);
         BigDecimal step = minStepDistance(md);
         BigDecimal stopDistance = roundUpToStep(BigDecimal.valueOf(risk[0]).max(minDist), step);
 
@@ -402,14 +402,24 @@ public class IGTradingService {
      * IG's minimum normal stop/limit distance (in points) for the market, or ZERO when the
      * dealing rules don't report one. Used to clamp our computed stop/limit up so the deal is
      * not rejected for being too tight on low-priced instruments.
+     *
+     * IG reports this rule's unit per-market: fixed POINTS for some (e.g. SOL: 1.0pt) but
+     * PERCENTAGE of price for others (e.g. BTC: 1.0% ≈ 623pt at $62,300; ETH: 1.0% ≈ 17pt at
+     * $1,740). Treating the raw value as points regardless of unit silently under-floors the
+     * stop on percentage markets, which IG then rejects with ATTACHED_ORDER_LEVEL_ERROR — this
+     * was firing on every BTC/ETH live deal since crypto auto-execute went live (Jul 4 2026).
      */
-    private BigDecimal minStopOrLimitDistance(MarketDetailsResponse md) {
-        if (md != null && md.getDealingRules() != null
-                && md.getDealingRules().getMinNormalStopOrLimitDistance() != null
-                && md.getDealingRules().getMinNormalStopOrLimitDistance().getValue() != null) {
-            return md.getDealingRules().getMinNormalStopOrLimitDistance().getValue();
+    private BigDecimal minStopOrLimitDistance(MarketDetailsResponse md, BigDecimal price) {
+        if (md == null || md.getDealingRules() == null
+                || md.getDealingRules().getMinNormalStopOrLimitDistance() == null
+                || md.getDealingRules().getMinNormalStopOrLimitDistance().getValue() == null) {
+            return BigDecimal.ZERO;
         }
-        return BigDecimal.ZERO;
+        DealingRuleValue rule = md.getDealingRules().getMinNormalStopOrLimitDistance();
+        if ("PERCENTAGE".equalsIgnoreCase(rule.getUnit()) && price != null) {
+            return price.multiply(rule.getValue()).divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
+        }
+        return rule.getValue();
     }
 
     /** Live bid/offer spread in points, or ZERO when the snapshot is unavailable. */
