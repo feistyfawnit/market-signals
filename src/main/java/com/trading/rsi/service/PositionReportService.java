@@ -349,7 +349,7 @@ public class PositionReportService {
         double riskEur = demoAccountBalance * demoRiskPercent / 100.0;
         StringBuilder csv = new StringBuilder();
         csv.append("id,direction,signal_type,symbol,entry_time,entry_price,stop_price,target_price,");
-        csv.append("result,exit_time,pnl_pct,est_eur_pnl,holding_hrs,spread_pts,spread_pct\n");
+        csv.append("result,exit_time,pnl_pct,est_eur_pnl,holding_hrs,spread_pts,spread_pct,final_stop_price\n");
 
         for (PositionOutcome p : all) {
             String direction = Boolean.TRUE.equals(p.getIsLong()) ? "LONG" : "SHORT";
@@ -366,7 +366,7 @@ public class PositionReportService {
                .append(p.getSymbol()).append(",")
                .append(p.getEntryTime().atZone(ZoneOffset.UTC).format(FMT)).append(",")
                .append(p.getEntryPrice().toPlainString()).append(",")
-               .append(p.getSlPrice().toPlainString()).append(",")
+               .append(initialStopPrice(p).toPlainString()).append(",")
                .append(p.getTpPrice().toPlainString()).append(",")
                .append(result).append(",")
                .append(p.getExitTime() != null ? p.getExitTime().atZone(ZoneOffset.UTC).format(FMT) : "").append(",")
@@ -374,7 +374,8 @@ public class PositionReportService {
                .append(p.getExitTime() != null ? String.format("%+.0f", estEur) : "").append(",")
                .append(p.getHoldingHours() != null ? String.format("%.1f", p.getHoldingHours()) : "").append(",")
                .append(p.getEntrySpreadPts() != null ? p.getEntrySpreadPts().toPlainString() : "").append(",")
-               .append(p.getEntrySpreadPct() != null ? String.format("%.4f", p.getEntrySpreadPct().doubleValue()) : "")
+               .append(p.getEntrySpreadPct() != null ? String.format("%.4f", p.getEntrySpreadPct().doubleValue()) : "").append(",")
+               .append(p.getSlPrice() != null ? p.getSlPrice().toPlainString() : "")
                .append("\n");
         }
         return csv.toString();
@@ -487,9 +488,33 @@ public class PositionReportService {
                 || p.getEntryPrice() == null || p.getSlPrice() == null) return 0;
         double entry = p.getEntryPrice().doubleValue();
         if (entry <= 0) return 0;
-        double stopPct = Math.abs(entry - p.getSlPrice().doubleValue()) / entry * 100.0;
+        // Use stopPts (initial stop distance, never mutated by trailing) to compute the
+        // risk percentage. Falling back to slPrice overstates R when the stop has been
+        // trailed above entry, because |entry - trailedStop| is much smaller than the
+        // actual initial risk distance.
+        double stopPct;
+        if (p.getStopPts() != null && p.getStopPts() > 0) {
+            stopPct = (double) p.getStopPts() / entry * 100.0;
+        } else {
+            stopPct = Math.abs(entry - p.getSlPrice().doubleValue()) / entry * 100.0;
+        }
         if (stopPct <= 0) return 0;
         double rMultiple = p.getPnlPct().doubleValue() / stopPct;
         return rMultiple * riskEur;
+    }
+
+    /**
+     * Compute the initial stop price from entryPrice ± stopPts. The {@code slPrice} field
+     * is mutated by the trailing-stop logic (ratcheted toward/above breakeven), so it cannot
+     * be used as the initial stop after trailing has fired. {@code stopPts} is set at position
+     * open and never changed.
+     */
+    private BigDecimal initialStopPrice(PositionOutcome p) {
+        if (p.getStopPts() != null && p.getEntryPrice() != null) {
+            return Boolean.TRUE.equals(p.getIsLong())
+                    ? p.getEntryPrice().subtract(BigDecimal.valueOf(p.getStopPts()))
+                    : p.getEntryPrice().add(BigDecimal.valueOf(p.getStopPts()));
+        }
+        return p.getSlPrice() != null ? p.getSlPrice() : BigDecimal.ZERO;
     }
 }
