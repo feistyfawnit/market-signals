@@ -354,10 +354,19 @@ public class HistoryArchivalService {
 
     private double estEur(PositionOutcome p) {
         if (p.getPnlPct() == null || p.getExitTime() == null
-                || p.getEntryPrice() == null || p.getSlPrice() == null) return 0;
+                || p.getEntryPrice() == null) return 0;
         double entry = p.getEntryPrice().doubleValue();
         if (entry <= 0) return 0;
-        double stopPct = Math.abs(entry - p.getSlPrice().doubleValue()) / entry * 100.0;
+        // Use stopPts (initial stop distance, never mutated by trailing) — same fix as
+        // PositionReportService.estEur. slPrice is the trailed stop and overstates R.
+        double stopPct;
+        if (p.getStopPts() != null && p.getStopPts() > 0) {
+            stopPct = (double) p.getStopPts() / entry * 100.0;
+        } else if (p.getSlPrice() != null) {
+            stopPct = Math.abs(entry - p.getSlPrice().doubleValue()) / entry * 100.0;
+        } else {
+            return 0;
+        }
         if (stopPct <= 0) return 0;
         double riskEur = demoAccountBalance * demoRiskPercent / 100.0;
         double rMultiple = p.getPnlPct().doubleValue() / stopPct;

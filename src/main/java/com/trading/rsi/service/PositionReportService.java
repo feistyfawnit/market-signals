@@ -449,12 +449,20 @@ public class PositionReportService {
                     ? (curD - entry) / entry
                     : (entry - curD) / entry) * 100.0;
             pnlPctStr = String.format("%+.2f%%", unrealPct);
-            if (p.getSlPrice() != null) {
-                double stopPct = Math.abs(entry - p.getSlPrice().doubleValue()) / entry * 100.0;
-                if (stopPct > 0) {
-                    double eur = (unrealPct / stopPct) * riskEur;
-                    estEurStr = (eur >= 0 ? "+" : "") + String.format("€%.0f", eur);
-                }
+            // Use stopPts (initial stop distance, never mutated by trailing) for the R
+            // denominator — same fix as estEur. slPrice is the trailed stop and would
+            // inflate the R-multiple once trailing ratchets it toward/above entry.
+            double stopPct;
+            if (p.getStopPts() != null && p.getStopPts() > 0) {
+                stopPct = (double) p.getStopPts() / entry * 100.0;
+            } else if (p.getSlPrice() != null) {
+                stopPct = Math.abs(entry - p.getSlPrice().doubleValue()) / entry * 100.0;
+            } else {
+                stopPct = 0;
+            }
+            if (stopPct > 0) {
+                double eur = (unrealPct / stopPct) * riskEur;
+                estEurStr = (eur >= 0 ? "+" : "") + String.format("€%.0f", eur);
             }
             result = unrealPct >= 0 ? "🟢" : "🔴";
         }

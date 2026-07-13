@@ -6,6 +6,7 @@ import com.trading.rsi.domain.SignalLog;
 import com.trading.rsi.event.SignalEvent;
 import com.trading.rsi.model.RsiSignal;
 import com.trading.rsi.repository.CandleHistoryRepository;
+import com.trading.rsi.repository.InstrumentRepository;
 import com.trading.rsi.repository.PositionOutcomeRepository;
 import com.trading.rsi.service.TrendDetectionService.TrendState;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,6 +54,9 @@ class PositionOutcomeServiceTest {
 
     @Mock
     private TelegramNotificationService telegramNotificationService;
+
+    @Mock
+    private InstrumentRepository instrumentRepository;
 
     @InjectMocks
     private PositionOutcomeService service;

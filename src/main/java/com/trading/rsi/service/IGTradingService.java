@@ -144,10 +144,10 @@ public class IGTradingService {
         // Guard: quiet hours — no trade prompts or executions during the sleep window, UNLESS
         // the instrument is auto-execute (no human needs to be awake to approve it). Manual-
         // approval instruments (S&P/DAX/Gold/Silver) still skip so their confirmation keyboard
-        // never fires at 3am. NotificationService/PositionOutcomeService independently keep
-        // suppressing Telegram pushes for ALL instruments during quiet hours — overnight
-        // auto-executed trades are silent and show up in the next `/pnl-report`, same as the
-        // existing "silent" (trend-buy-dip-notify:false) instrument pattern. Jul 4 2026.
+        // never fires at 3am. NotificationService suppresses Telegram pushes for ALL instruments
+        // during quiet hours. PositionOutcomeService mirrors this auto-execute exemption — it
+        // opens a tracked DB position for auto-execute instruments during quiet hours (Jul 12 2026
+        // fix: was unconditionally skipping, causing orphaned IG trades). Jul 4 2026.
         if (isQuietHours() && !instrumentAutoExecute) {
             log.info("Quiet hours — skipping trade action for {} {}", signal.getSymbol(), signal.getSignalType());
             return;
@@ -483,7 +483,13 @@ public class IGTradingService {
                         pos.setIgDealId(confirm.getDealId());
                         positionOutcomeRepository.save(pos);
                         log.info("Position {} ({}) confirmed — igDealId={}", pos.getId(), pos.getSymbol(), confirm.getDealId());
-                    }, () -> log.warn("No open DB position found for {} to attach igDealId={}", signal.getSymbol(), confirm.getDealId()));
+                    }, () -> {
+                        log.error("ORPHAN TRADE: No open DB position found for {} to attach igDealId={} — live IG deal exists but is untracked",
+                                signal.getSymbol(), confirm.getDealId());
+                        telegramNotificationService.send("\u26a0\ufe0f Orphan trade",
+                                String.format("%s %s ACCEPTED on IG but no DB position to track it — dealId %s. Trailing/reporting skipped.",
+                                        signal.getSignalType(), signal.getSymbol(), confirm.getDealId()));
+                    });
         } else {
             log.warn("Trade REJECTED for {} — reason={}", signal.getSymbol(), confirm.getReason());
             telegramNotificationService.send("\u274c Trade rejected",

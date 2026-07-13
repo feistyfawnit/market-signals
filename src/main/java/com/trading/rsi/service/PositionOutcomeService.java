@@ -6,6 +6,7 @@ import com.trading.rsi.domain.SignalLog;
 import com.trading.rsi.event.SignalEvent;
 import com.trading.rsi.model.RsiSignal;
 import com.trading.rsi.repository.CandleHistoryRepository;
+import com.trading.rsi.repository.InstrumentRepository;
 import com.trading.rsi.repository.PositionOutcomeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +43,7 @@ public class PositionOutcomeService {
     private final FilterEventCounterService filterEventCounterService;
     private final IGTradingService igTradingService;
     private final TelegramNotificationService telegramNotificationService;
+    private final InstrumentRepository instrumentRepository;
 
     private static final Duration MAX_HOLDING = Duration.ofHours(16); // lowered 24→16h May 2026 — frees slot for next signal sooner when position stagnates
     private static final String ATR_TIMEFRAME = "15m";
@@ -131,11 +133,22 @@ public class PositionOutcomeService {
         RsiSignal signal = event.getSignal();
         if (!TRACKED_SIGNALS.contains(signal.getSignalType())) return;
 
-        // Guard: skip during quiet hours — keeps position tracker in sync with Telegram suppression
+        // Guard: skip during quiet hours for manual-approval instruments only.
+        // Auto-execute instruments (SOL/BTC/ETH) still open a tracked DB position
+        // during quiet hours so IGTradingService.handleConfirm can attach the igDealId
+        // and trailing/reporting works. Mirrors the exemption in IGTradingService.handleSignalEvent.
+        // Jul 12 2026: was unconditionally returning during quiet hours, causing orphaned IG trades.
         if (isQuietHours()) {
-            log.debug("Quiet hours — skipping position open for {} {}", signal.getSymbol(), signal.getSignalType());
-            filterEventCounterService.record("QUIET_HOURS", signal.getSymbol());
-            return;
+            boolean instrumentAutoExecute = instrumentRepository.findBySymbol(signal.getSymbol())
+                    .map(i -> Boolean.TRUE.equals(i.getAutoExecuteEnabled()))
+                    .orElse(false);
+            if (!instrumentAutoExecute) {
+                log.debug("Quiet hours — skipping position open for {} {}", signal.getSymbol(), signal.getSignalType());
+                filterEventCounterService.record("QUIET_HOURS", signal.getSymbol());
+                return;
+            }
+            log.info("Quiet hours — auto-execute instrument {}, opening tracked position for {} {}",
+                    signal.getSymbol(), signal.getSymbol(), signal.getSignalType());
         }
 
         // Guard: skip if open position exists or signal fired within cooldown window
