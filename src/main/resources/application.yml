@@ -21,6 +21,11 @@ spring:
 server:
   port: ${PORT:8080}
 
+app:
+  security:
+    user: ${APP_SECURITY_USER:admin}
+    password: ${APP_SECURITY_PASSWORD:changeme}
+
 rsi:
   period: 14
   oversold-threshold: 30

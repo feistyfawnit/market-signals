@@ -4,6 +4,7 @@ EC2_IP  := 108.128.230.238
 SSH_KEY := $(HOME)/.ssh/market-signals.pem
 SSH     := ssh -i $(SSH_KEY) ubuntu@$(EC2_IP)
 APP_DIR := ~/apps/market-signals
+AUTH    := -u admin:wmq-astro-2026
 
 up:
 	@if [ "$(LOCAL_RUN)" != "yes" ]; then \
@@ -26,10 +27,10 @@ logs:
 	docker-compose logs -f app
 
 test:
-	curl -X POST http://localhost:8080/api/test/notify
+	curl $(AUTH) -X POST http://localhost:8080/api/test/notify
 
 test-anomaly:
-	curl -X POST "http://localhost:8080/api/test/anomaly?type=polymarket"
+	curl $(AUTH) -X POST "http://localhost:8080/api/test/anomaly?type=polymarket"
 
 ps:
 	docker-compose ps
@@ -39,7 +40,7 @@ clean:
 
 pnl-report:
 	@mkdir -p reports
-	@curl -s http://localhost:8080/api/positions/pnl-report > reports/pnl-report.md
+	@curl -s $(AUTH) http://localhost:8080/api/positions/pnl-report > reports/pnl-report.md
 	@echo "P&L report written to reports/pnl-report.md"
 
 deploy:
@@ -54,12 +55,12 @@ ship: deploy remote-logs
 
 remote-report:
 	@mkdir -p reports
-	$(SSH) "curl -s http://localhost:8080/api/positions/pnl-report" > reports/pnl-report.md
+	$(SSH) "curl -s $(AUTH) http://localhost:8080/api/positions/pnl-report" > reports/pnl-report.md
 	@echo "P&L report pulled from EC2 → reports/pnl-report.md"
 
 remote-csv:
 	@mkdir -p reports
-	$(SSH) "curl -s http://localhost:8080/api/positions/pnl-report/csv" > reports/signal-outcomes-live.csv
+	$(SSH) "curl -s $(AUTH) http://localhost:8080/api/positions/pnl-report/csv" > reports/signal-outcomes-live.csv
 	@echo "CSV pulled from EC2 → reports/signal-outcomes-live.csv"
 
 remote-append:
@@ -69,7 +70,7 @@ remote-append:
 	@echo "" >> reports/signal-outcomes.md
 	@echo "# Signal Outcome Report — $$(date -u '+%b %d %Y %H:%M UTC')" >> reports/signal-outcomes.md
 	@echo "" >> reports/signal-outcomes.md
-	$(SSH) "curl -s http://localhost:8080/api/positions/pnl-report" >> reports/signal-outcomes.md
+	$(SSH) "curl -s $(AUTH) http://localhost:8080/api/positions/pnl-report" >> reports/signal-outcomes.md
 	@echo "✅ Appended live EC2 report → reports/signal-outcomes.md"
 
 remote-logs-tail:
