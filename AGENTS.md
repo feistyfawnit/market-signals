@@ -20,17 +20,19 @@ If you are reviewing or changing this repo, read in this order:
 - **Binance instruments**: `SOLUSDT` (full signals, **auto-execute**), `BTCUSDT`/`ETHUSDT` (enabled, **auto-execute**), `BCHUSDT` (disabled)
   - Timeframes: `15m,1h,4h`
   - Auto-execute: crypto instruments skip the 120s Telegram confirmation keyboard and place IG demo deals immediately. Indices/commodities still require manual approval. Toggle per-instrument via `auto-execute-enabled` in YAML (synced to DB on restart). Jul 4 2026.
-- **IG indices**: DAX (TREND_BUY_DIP re-enabled SILENT `notify:false` Jun 23 2026 — gathering post-chop-filter forward data; old 0/9 / €901 record predates the May ADX-12/EMA/MACD filters); S&P 500 (TREND_BUY_DIP `notify:true` as of Jun 14 2026 — best forward performer; revisit if win rate <50% over next ~10 trades); FTSE 100 (TREND_BUY_DIP disabled); Nasdaq 100 (disabled)
+  - **ATR multiplier raised 1.5→2.0** (Jul 16 2026): ETH/SOL stops were too tight (4-6pt on $1800, 2pt on $77), 53% SL hit rate. 2.0 gives more room for noise.
+- **IG indices**: DAX (SILENT `notify:false`); S&P 500 (**auto-execute** Jul 16 2026 — best index performer, 67% win, +€334 net, market hours only); Nasdaq 100 (enabled SILENT Jul 16 2026 — gathering forward data); FTSE 100 (disabled Jul 16 2026 — 0 trades, −0.86R backtest)
   - Timeframes: `15m,30m,1h`
-- **IG commodities**: Gold (TREND_BUY_DIP re-enabled SILENT `notify:false` Jun 23 2026 — low-confidence −1.00R backtest, visibility only; `rsi-signals-enabled:false`); Silver (re-enabled Jun 23 2026, TREND_BUY_DIP SILENT — **needs runtime toggle**, see note); Oil (enabled, TREND_BUY_DIP disabled — leading indicator only)
+- **IG commodities**: Gold (SILENT `notify:false`, `rsi-signals-enabled:false` — kept for Hormuz/Iran geopolitical plays); Oil (enabled, `trend-buy-dip-enabled:false` — leading indicator only, kept for geopolitical correlation); Silver (disabled Jul 16 2026 — 0 trades, −1.00R backtest)
   - Timeframes: `15m,1h,4h`
-- **`trend-buy-dip-enabled` / `trend-buy-dip-notify` / `auto-execute-enabled` flags**: per-instrument in YAML, synced to DB on restart. YAML wins for these fields (unlike `enabled` which DB preserves). DAX/Gold/Silver = enabled-but-silent; FTSE = disabled; S&P = notifying (Jun 14 2026). SOL/BTC/ETH = auto-execute (Jul 4 2026).
-- **Silver `enabled` caveat**: YAML `enabled:true` does NOT override an existing disabled DB row (`DataInitializer` preserves DB `enabled`). Silver (id 11) must be turned on once at runtime: `curl -X POST http://localhost:8080/api/instruments/11/toggle`.
+- **Shorting enabled** (Jul 16 2026): `sell-rally-enabled: true`. `TREND_SELL_RALLY` fires on rallies in downtrends (mirror of TREND_BUY_DIP). Starts SILENT — no auto-execute for shorts yet. Plumbing: `IGTradingService` direction switch, `PositionOutcomeService` short SL/TP + trailing, `replayCandles` short replay.
+- **`trend-buy-dip-enabled` / `trend-buy-dip-notify` / `auto-execute-enabled` flags**: per-instrument in YAML, synced to DB on restart. YAML wins for these fields (unlike `enabled` which DB preserves). DAX/Gold/Nasdaq = enabled-but-silent; S&P = auto-execute; FTSE/Silver = disabled. SOL/BTC/ETH = auto-execute (Jul 4 2026).
+- **Silver `enabled` caveat**: YAML `enabled:false` (Jul 16 2026). If re-enabling, note YAML does NOT override an existing enabled DB row (`DataInitializer` preserves DB `enabled`). Must toggle at runtime: `curl -X POST http://localhost:8080/api/instruments/11/toggle`.
 
 ## Important Guardrails
 
 - **IG historical data allowance is the main constraint**: 10,000 data points/week
-- Current enabled IG set is designed to stay around **~5,300 points/week** (Silver added Jun 23 2026 → ~6,300/week, still under the 10,000 cap)
+- Current enabled IG set: DAX + S&P + Nasdaq + Gold + Oil = **~5,900 points/week** (FTSE + Silver disabled Jul 16 2026, Nasdaq added). Still under the 10,000 cap.
 - **Do not** add IG instruments, change IG polling frequency, or trigger repeated warmups without recalculating budget
 - **Do not** trust a new IG epic code until it is verified with:
   - IG market search
@@ -39,7 +41,7 @@ If you are reviewing or changing this repo, read in this order:
 
 ## Risk model (current — see `docs/project-log.md` for history)
 
-- **Stops**: ATR(14) on 15m × multiplier (1.5 trend, 2.0 non-trend). Falls back to fixed-pct (`stop-percent-*`) when ATR unavailable. Toggle via `rsi.demo.atr-stops-enabled`.
+- **Stops**: ATR(14) on 15m × multiplier (2.0 trend, 2.0 non-trend). Falls back to fixed-pct (`stop-percent-*`) when ATR unavailable. Toggle via `rsi.demo.atr-stops-enabled`. Jul 16 2026: trend multiplier raised 1.5→2.0 to reduce noise stop-outs on ETH/SOL.
 - **Reward:Risk** (trend signals): crypto 2:1, indices 3:1, commodities 3:1. Non-trend always 2:1. Configurable per asset class under `rsi.demo.trend-rr-*`.
 - **Crypto 2:1** was lowered from 3:1 after SOL produced 5 wins all via 24h auto-close at +2–3% with zero TP hits — 3:1 target was unreachable on a 24h horizon.
 - **P&L report** uses R-multiple €-estimation: `€ = (pnlPct / stopPctAtEntry) × riskEur`. This correctly credits 24h auto-closes with positive P&L (was previously mis-classified as fixed-€ losses).

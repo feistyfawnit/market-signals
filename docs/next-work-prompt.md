@@ -28,25 +28,25 @@ ssh ... "curl -s http://localhost:8080/api/instruments" | python3 -m json.tool
 
 ---
 
-## Backlog (2026-07-12 review)
+## Backlog (2026-07-16 review)
 
 ### P0 — Orphaned overnight crypto auto-trades — **FIXED 2026-07-12**
 `PositionOutcomeService` skipped all position opens during quiet hours, while `IGTradingService` placed live IG deals for auto-execute instruments. Fixed: auto-execute exemption mirrored. Orphan fallback upgraded to `log.error` + Telegram alert.
 
-### P1 — Shorting not enabled (crash protection gap)
-Long-only. `sell-rally-enabled: false`. Plumbing exists (direction switch, short SL/TP, short trailing). To enable:
-1. Flip `sell-rally-enabled: true` (start SILENT for forward data)
-2. Confirm `STRONG_DOWNTREND` + `rally-rsi-threshold` (55) on a real sell-off
-3. Only then consider auto-execute (different margin/overnight cost for short crypto CFDs)
+### P1 — Shorting enabled — **DEPLOYED 2026-07-16**
+`sell-rally-enabled: true`. `TREND_SELL_RALLY` fires on rallies in downtrends. Starts SILENT (no auto-execute for shorts). Monitor forward data before enabling auto-execute on shorts.
 
-### P2 — Instrument enablement review
-Auto-execute: SOL, BTC, ETH. Manual: S&P, DAX, Gold, Oil, Silver. Disabled: BCH, FTSE, Nasdaq.
-- **S&P**: best forward index performer, still manual — candidate for auto-execute per `roadmap.md` gate
-- **Nasdaq**: worth enabling silent for signal data; watch IG data budget
-- Confirm silent commodities aren't dead weight after forward-data window
+### P2 — Crypto stop widening — **DEPLOYED 2026-07-16**
+ATR multiplier raised 1.5→2.0. ETH/SOL stops were too tight (53% SL hit rate). Monitor whether win rate holds or improves.
 
-### P3 — BTC "small gains" — not a bug
-BTC is top net earner (67% win, +€1,022 net). Lower % volatility than SOL but R-multiple normalises. Lever for bigger wins: `trend-rr-crypto` (2:1) or trailing geometry. Revisit only with new data.
+### P3 — S&P auto-execute — **DEPLOYED 2026-07-16**
+S&P flipped to `auto-execute-enabled: true`. Best index performer (67% win, +€334 net). Market hours only (11:00-22:00 UTC), no overnight risk.
+
+### P4 — Instrument reshuffle — **DEPLOYED 2026-07-16**
+Disabled: FTSE (0 trades, −0.86R), Silver (0 trades, −1.00R). Enabled: Nasdaq (silent, forward data). Kept: Gold + Oil (Hormuz/Iran geopolitical plays). IG budget: ~5,900 pts/week (under 10k cap).
+
+### P5 — Monitor shorting forward data
+After ≥10 `TREND_SELL_RALLY` signals, review win rate and expectancy. If positive, consider auto-execute for shorts on crypto (different margin/overnight cost).
 
 ---
 

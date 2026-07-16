@@ -71,7 +71,7 @@ rsi:
     # Sampled on 15m timeframe; falls back to fixed-pct if < period+1 candles available
     atr-stops-enabled: ${ATR_STOPS_ENABLED:true}
     atr-period: ${ATR_PERIOD:14}
-    atr-multiplier-trend: ${ATR_MULTIPLIER_TREND:1.5}
+    atr-multiplier-trend: ${ATR_MULTIPLIER_TREND:2.0}  # Jul 16 2026: raised 1.5→2.0 — ETH/SOL stops too tight (4-6pt on $1800, 2pt on $77), 53% SL hit rate. 2.0 gives more room for noise.
     atr-multiplier-default: ${ATR_MULTIPLIER_DEFAULT:2.0}
     # Reward:Risk by asset class (trend signals only; non-trend always uses 2:1)
     # Crypto lowered to 2:1 — SOL 5 wins were all 24h auto-closes, 3:1 target never hit
@@ -102,7 +102,7 @@ rsi:
     rally-rsi-threshold: ${TREND_RALLY_RSI_THRESHOLD:55}
     trend-timeout-hours: ${TREND_TIMEOUT_HOURS:12}
     suppress-counter-trend: ${TREND_SUPPRESS_COUNTER:true}
-    sell-rally-enabled: ${TREND_SELL_RALLY_ENABLED:false}
+    sell-rally-enabled: ${TREND_SELL_RALLY_ENABLED:true}  # Jul 16 2026: enabled — Hormuz/Iran tensions mean crash opportunities; plumbing exists (short SL/TP, trailing, IG direction). Starts SILENT (no auto-execute for shorts yet).
     # ADX(14) trend-strength filter on the trend timeframe (1h). Skips TREND_BUY_DIP /
     # TREND_SELL_RALLY when the market is ranging (Schwab/Investopedia: ADX<20 = no trend).
     # Set enabled=false to disable; threshold=0 also effectively disables.
@@ -317,12 +317,12 @@ watchlist:
     - symbol: IX.D.FTSE.DAILY.IP
       name: FTSE 100
       source: IG
-      enabled: true
+      enabled: false  # Jul 16 2026: disabled — 0 trades, −0.86R backtest. Freed IG budget redirected to Nasdaq.
       type: INDEX
       oversold-threshold: 30
       overbought-threshold: 70
       timeframes: "15m,30m,1h"
-      trend-buy-dip-enabled: false  # −0.86R backtest (7 signals, 0% TP, 86% SL)
+      trend-buy-dip-enabled: false
     - symbol: IX.D.SPTRD.DAILY.IP
       name: S&P 500
       source: IG
@@ -340,6 +340,7 @@ watchlist:
       # landed, S&P is the best forward performer (2/3 wins, +€209 net est.). Sample is small,
       # so revisit if win rate drops below 50% over the next ~10 trades.
       trend-buy-dip-notify: true
+      auto-execute-enabled: true  # Jul 16 2026: S&P is best index performer (67% win, +€334 net). Market hours only (11:00-22:00 UTC), no overnight risk.
     # Gold — verified epic CS.D.USCGC.TODAY.IP (Spot Gold, XAU/USD proxy)
     - symbol: CS.D.USCGC.TODAY.IP
       name: Gold
@@ -370,20 +371,21 @@ watchlist:
     - symbol: IX.D.NASDAQ.CASH.IP
       name: Nasdaq 100
       source: IG
-      enabled: false
+      enabled: true  # Jul 16 2026: enabled silent — trends well historically, gather forward data.
       type: INDEX
       oversold-threshold: 30
       overbought-threshold: 70
       timeframes: "15m,30m,1h"
+      trend-buy-dip-enabled: true
+      trend-buy-dip-notify: false  # Silent — no alerts until forward data validates.
     - symbol: CS.D.USCSI.TODAY.IP
       name: Silver
       source: IG
-      enabled: true   # Jun 23 2026: re-enabled for visibility (adds ~1k IG points/week — see budget note in AGENTS.md)
+      enabled: false  # Jul 16 2026: disabled — 0 trades, −1.00R backtest. IG budget redirected to Nasdaq.
       type: COMMODITY
       oversold-threshold: 30
       overbought-threshold: 70
       timeframes: "15m,1h,4h"
-      # Jun 23 2026: trend detection on in SILENT mode (notify:false). Low-confidence (−1.00R backtest).
       trend-buy-dip-enabled: true
       trend-buy-dip-notify: false
-      rsi-signals-enabled: false  # Keep Silver silent-only; trend dips tracked without RSI alert noise
+      rsi-signals-enabled: false
